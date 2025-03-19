@@ -27,4 +27,8 @@
 * Viewers (read-only UI view)
 
 
-
+## Notes/Extra Resources
+- Learning as it's being developed
+- Using [CJ's CPP Orderbook series](https://www.youtube.com/playlist?list=PLIkrF4j3_p-2C5VuzbBxpBsFzh0qqXtgm) and [HFT Book](https://docs.google.com/viewer?url=https%3A%2F%2Fgithub.com%2FScriptize%2FHFTS%2Fraw%2Fmain%2FResources%2FDeveloping-High-Frequency-Trading-Systems-Learn-how-to-implement-high-frequency-trading-from-scratch-with-C%252B%252Bor-Java-basics.pdf) as references
+- [Rust Book](https://doc.rust-lang.org/book/)
+ 
