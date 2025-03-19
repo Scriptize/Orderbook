@@ -17,6 +17,7 @@
 * Gateways
 * Book Builder (OrderBook)
 * Strategy (Signal & Execution)
+* Order Manager (OMS)
 ###### (Venues aren't "part" of the trading system, but rather "exchanges" that the gateways interface with) 
 
 ### Non-critical Components:
