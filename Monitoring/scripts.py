@@ -15,21 +15,20 @@ mock_data = [
  {"type":"log","level":"INFO","message":"Trade executed: Order#14352 matched with Order#14349"}
 ]
 
+update_log = ui.log(max_lines=10).classes('w-full h-20')
+matches_log = ui.log(max_lines=10).classes('w-full h-20')
+systems_log = ui.log(max_lines=10).classes('w-full h-20')
 
-
-update_log = ui.log(max_lines=10).classes('w-full')
-matches_log = ui.log(max_lines=10).classes('w-full')
-systems_log = ui.log(max_lines=10).classes('w-full')
-
-async def leos_func(num_of_logs):
+async def leos_func(num_of_logs, update_log, matches_log, systems_log):
     for _ in range(num_of_logs):
         random_log_event = random.choice(mock_data)
         if random_log_event["type"] == "log":
-            systems_log.append(random_log_event)
+            systems_log.push(random_log_event)
         elif random_log_event["type"] == "match":
-            matches_log.append(random_log_event)
+            matches_log.push(random_log_event)
         else:
-            update_log.append(random_log_event)
+            update_log.push(random_log_event)
+
     
 
 # while True: #connected to server
@@ -47,8 +46,6 @@ async def leos_func(num_of_logs):
 #         counter += 1
 
 # asyncio.create_task(simulated_callback())
-
-
 
 
 # ##############
