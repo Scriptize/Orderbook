@@ -4,3 +4,7 @@ target/
 
 # Cargo
 Cargo.lock
+
+#Python
+.venv
+__pycache__/

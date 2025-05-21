@@ -16,7 +16,7 @@
 * Venues *
 * Gateways
 * Book Builder (OrderBook)
-* Strategy (Signal & Execution)
+* Strategy (Matching Engine)
 * Order Manager (OMS)
 ###### (Venues aren't "part" of the trading system, but rather "exchanges" that the gateways interface with) 
 
