@@ -1,0 +1,176 @@
+### Notes from CJ's "C++ Orderbook Series"###
+https://www.youtube.com/playlist?list=PLIkrF4j3_p-2C5VuzbBxpBsFzh0qqXtgm
+
+enums for OrderType: class(?)
+* GoodTillCancel
+* FillAndKill
+
+enums for Side: class(?)
+* Buy
+* Sell
+
+Price: Can be negative int32_t
+Quantity: uint32_t
+OrderId: uint32_t
+
+Orderbooks have "Levels" : Price & Quantity
+
+struct LevelInfo: Will be used in public APIs to get state of Orderbook
+* Price
+* Quantity
+
+LevelInfos: vector<LevelInfo>
+
+We want to excapsulate levelInfos to represent our sides
+Orderbooks can have 2 sides, each side is a list of levels
+
+class OrderbookLevelInfos:
+* constructor that takes bids and asks as LevelInfos
+* getters for bids and asks
+* bids and asks as fields
+
+Order objects have type, id, side, price, quantity, filled(?)
+
+class Order:
+* constructor that takes, ordertype, orderid, side, price, quantity
+* getters for orderid, side, price, ordertype, initialquantity, remainingquantity, filled, filledquantity (difference between the two)
+* type, id, side, price, initialquantity, remainingquantity as fields
+
+method Fill(quantity):
+* The lowest quantity between is the quantity used to filled
+* if quantity > remaining: throw error (order cannot be filled for more than its remaining quantity)
+* else remaining -= quantity
+
+Because single order will be stored in multiple places, we'll use a smart shared pointer
+OrderPointer: make_shared<Order>
+OrderPointers = list(?)<OrderPointer> (vector more efficent)
+
+Abstraction for add, modify, cancel:
+* cancel u need orderid
+* add u need order
+* modify lightweight repr for order that can be converted to order (modify is cancel and replace[add])
+
+class OrderModify:
+* constructor that takes orderId, side, price, quantity
+* getters for the aforementioned
+* id, price, side, quantity as fields
+
+* public api for converting existing order to new modified order
+method ToOrderPointer -> OrderPointer:
+* return sharedptr to modified fields 
+
+A Trade object is an aggregation of two trade info objects, (bids and asks)
+
+struct TradeInfo:
+* orderid
+* price
+* quyantity
+
+class Trade:
+* constructor that takes bidTrade and askTrade as TradeInfos
+* getters for bidTrade and askTrade
+* bidTrade and askTrade as fields
+
+Trades: vector<Trade>
+
+### Orderbook ###
+
+When we store orders, think of maps and unorder maps:
+
+Bids and Asks: maps
+Bids are sorted in desending order for the best bids
+Asks are sorted in ascending order for the best ask
+
+We want O(1) access based off ID
+
+We can get iterator to every order that we add since we're using List(?) Vec(?) does it matter (?)
+
+private:
+* OrderEntry:
+* OrderPointer (order) default = nulptr
+* OrderPointers::iterator (location)
+
+Orders are ordered in the book by price-time priority. Price will be the key
+* bids: map<Price, OrderPointers, greater<Price>>
+* asks: map<Price, OrderPointers, less<Price>>
+
+
+
+method:
+**Match** -> Trades (The idea is that we have orders in the orderbook we need to resolve)
+* worst case, every order matches so reserve orders.size for return
+
+* while true:
+* if there are no bids or no asks, break (cant do anything)
+
+* get best bid and best ask: 
+* if bid is less than ask price (nothing to match) break
+* while there are bids and asks: (Match them!)
+* get the front of bids and asks
+* trade quantity = min(bid remaining, ask remaining)
+* bid -> fill(quantity)
+* ask -> fill(quantity)
+* if bid is filled, pop it fron the bids and remove it from orders
+* if ask is filled, pop it fron the asks and remove it from orders
+* if bids are empty, get rid of the price from the map, likewise for asks
+
+* Add Trade to the list of trades (Remember: Trades are made of 2 TradeInfo objects (bid/ask) cantaining orderid, price, quantity)
+
+* if our bids are not empty, if the first order is a FillAndKill, cancel it; likewise for asks
+* return trades 
+
+
+
+method:
+CanMatch(side, price) -> bool (Think of FillAndKill order: if it cant match anything in the orderbook, never added, just discarded)
+* takes side and price 
+* if side is buy, if asks are empty, cant match
+* otherwise check if the bid is greater than or equal to the bestAsk
+
+*if side is sell, if buys are empty, cant match
+* otherwise check if the ask is less than or equal to the bestBid
+
+public:
+
+AddOrder(order) -> Trades:
+* if order is contined in the orders, reject; return {}
+* if the order is FillandKill and you cant Match, reject; return {}
+* get iterator for Orders
+* if order type is buy, create an orderlevel if one doesnt exist and push it into orders
+* set iterator to next (c++ is next(orders.begin(), orders.size() - 1)) likewise for sell
+
+* (not sure) orders.insert({orderid, orderentry{order, iterator}}) ???
+* return MatchOrders();
+
+CancelOrder(orderid) -> Trades:
+* if order not in orders, cancel
+* remove order using id O(1)
+* remove order from sell or buy side usng price as key
+* (reminder: that iterator would point at that exact entry)
+* if the orderlevel would become empty, remove it entirely
+
+ModifyOrder(order) -> Trades:
+* if order not in orders reject; return {}
+* grab order from orders by id before cancelling 
+return AddOrder(order.ToOrderPointer(existingorder.type))
+
+Size() -> int32_t
+
+GetOrderInfos() -> OrderbookLevelInfos:
+* be pessimestic about size; reserve order size for bidinfos and askinfos
+* use something like lamda to Create Level Infos; iterate and accumulate quantity ex. (runningsum + order.remainingquantity)
+* iterate through bids and add LevelInfos based on price and order to bidInfos; likewise for Asks
+* return OrderbookLevelInfos
+
+
+Test Main:
+1. Declare orderbook
+2. Make an order id (1)
+3. Add an order, (GoodTillCancel, Buy, 100, 10)
+4. Print orderbook size //1 
+5. Cancel Order
+6. Print orderbook size //0
+
+
+
+
