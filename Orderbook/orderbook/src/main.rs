@@ -35,9 +35,15 @@ fn main() {
             o.get_price(),
             new_size
         );
-        if new_size < prev_size {
+        if new_size <= prev_size {
             println!("Orders Matched!");
+        }
+        if o.is_filled(){
+            println!("Order with ID{} filled, removing from book", o.get_order_id());
+        } else{
+            println!("Order with ID{} not filled", o.get_order_id());
         }
         prev_size = new_size;
     }
+    // println!("{:#?}", orderbook);
 }

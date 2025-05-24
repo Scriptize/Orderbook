@@ -43,7 +43,7 @@ impl OrderbookLevelInfos {
         &self.ask_infos
     }
 }
-
+#[derive(Debug)]
 pub struct Order {
     order_type: OrderType,
     order_id: OrderId,
@@ -191,11 +191,13 @@ type Trades = Vec<Trade>;
 
 ///////////////////////////////////////
 
+#[derive(Debug)]
 struct OrderEntry{
     order: OrderPointer,
     location: usize,
 }
 
+#[derive(Debug)]
 pub struct Orderbook{
     bids: BTreeMap<Price, OrderPointers>,
     asks: BTreeMap<Price, OrderPointers>,
