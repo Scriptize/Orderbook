@@ -117,7 +117,7 @@ impl Order {
 type OrderPointer = Rc<RefCell<Order>>;
 type OrderPointers = Vec<OrderPointer>;
 
-struct OrderModify {
+pub struct OrderModify {
     order_id: OrderId,
     price: Price,
     side: Side,
@@ -248,10 +248,11 @@ impl Orderbook{
     }
 
     pub fn add_order(&mut self, order: OrderPointer) -> Trades{
+        //check if order exist
         if self.orders.contains_key(&order.borrow().get_order_id()){
             return vec![];
         }
-
+        //check if order is a FillAndKill that can't match
         if order.borrow().get_order_type() == OrderType::FillAndKill && !self.can_match(order.borrow().get_side(), order.borrow().get_price()){
             return vec![];
         }
@@ -444,3 +445,18 @@ impl Orderbook{
         
 
 
+/// Tests:
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_new_orderbook(){
+        let mut orderbook = Orderbook::new(BTreeMap::new(), BTreeMap::new());
+        assert_eq!(orderbook.size(), 0)
+    }
+
+    
+
+}
