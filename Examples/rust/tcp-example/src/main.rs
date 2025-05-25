@@ -12,13 +12,16 @@ fn main(){
 
         let mut role = String::new();
         io::stdin().read_line(&mut role);
-        role.pop();
+        role = role.trim().to_string();
+        
 
         if let Some(ch) = role.pop(){
            if ch == "S".chars().next().unwrap(){
                 println!("Running Sender...");
                 run_sender();
                 return;
+            } else{
+                println!("char was {}", ch);
             } 
            if ch == "R".chars().next().unwrap(){
                 println!("Running Receiver...");
