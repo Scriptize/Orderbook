@@ -19,14 +19,14 @@ pub enum Side {
 type Price = i32;
 type Quantity = u32;
 type OrderId = u32;
-
+#[derive(Debug)]
 pub struct LevelInfo {
     pub price: Price,
     pub quantity: Quantity,
 }
 
 type LevelInfos = Vec<LevelInfo>;
-
+#[derive(Debug)]
 pub struct OrderbookLevelInfos {
     bid_infos: LevelInfos,
     ask_infos: LevelInfos,
@@ -43,7 +43,7 @@ impl OrderbookLevelInfos {
         &self.ask_infos
     }
 }
-
+#[derive(Debug)]
 pub struct Order {
     order_type: OrderType,
     order_id: OrderId,
@@ -73,6 +73,26 @@ impl Order {
             filled_quantity: 0,
             filled: false,
         }
+    }
+
+    //new pointer to order; will be used most of the time
+    pub fn new_shared(
+        order_type: OrderType,
+        order_id: OrderId,
+        side: Side,
+        price: Price,
+        quantity: Quantity,
+    ) -> Rc<RefCell<Self>> {
+        Rc::new(RefCell::new(Self {
+            order_type,
+            order_id,
+            side,
+            price,
+            initial_quantity: quantity,
+            remaining_quantity: quantity,
+            filled_quantity: 0,
+            filled: false,
+        }))
     }
 
     pub const fn get_order_id(&self) -> OrderId {
@@ -112,11 +132,13 @@ impl Order {
             Err("Order cannot be filled for more than it's remaining quantity.".to_string())
         }
     }
+
+    
 }
 
 type OrderPointer = Rc<RefCell<Order>>;
 type OrderPointers = Vec<OrderPointer>;
-
+#[derive(Debug)]
 pub struct OrderModify {
     order_id: OrderId,
     price: Price,
@@ -158,13 +180,13 @@ impl OrderModify {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct TradeInfo {
     pub order_id: OrderId,
     pub price: Price,
     pub quantity: Quantity,
 }
-
+#[derive(Debug)]
 pub struct Trade{
     bid_trade: TradeInfo,
     ask_trade: TradeInfo,
@@ -190,12 +212,12 @@ impl Trade{
 type Trades = Vec<Trade>;
 
 ///////////////////////////////////////
-
+#[derive(Debug)]
 struct OrderEntry{
     order: OrderPointer,
     location: usize,
 }
-
+#[derive(Debug)]
 pub struct Orderbook{
     bids: BTreeMap<Price, OrderPointers>,
     asks: BTreeMap<Price, OrderPointers>,
@@ -452,11 +474,58 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_new_orderbook(){
-        let mut orderbook = Orderbook::new(BTreeMap::new(), BTreeMap::new());
+    fn test_orderbook_new(){
+        let orderbook = Orderbook::new(BTreeMap::new(), BTreeMap::new());
         assert_eq!(orderbook.size(), 0)
     }
 
+    #[test]
+    fn test_orderbook_add_order(){
+        let mut orderbook = Orderbook::new(BTreeMap::new(), BTreeMap::new());
+        orderbook.add_order(Order::new_shared(OrderType::GoodTillCancel, 1, Side::Buy, 100, 10));
+        orderbook.add_order(Order::new_shared(OrderType::GoodTillCancel, 2, Side::Buy, 100, 10));
+        orderbook.add_order(Order::new_shared(OrderType::GoodTillCancel, 3, Side::Buy, 100, 10));
+        
+        assert_eq!(orderbook.size(), 3);
+    }
+
+    #[test]
+    fn test_orderbook_cancel_order(){
+        let mut orderbook = Orderbook::new(BTreeMap::new(), BTreeMap::new());
+
+        orderbook.add_order(Order::new_shared(OrderType::GoodTillCancel, 1, Side::Buy, 100, 10));
+        orderbook.add_order(Order::new_shared(OrderType::GoodTillCancel, 2, Side::Buy, 100, 10));
+        orderbook.add_order(Order::new_shared(OrderType::GoodTillCancel, 3, Side::Buy, 100, 10));
+        println!("{:?}", orderbook.get_order_infos());
+        orderbook.cancel_order(1);
+        orderbook.cancel_order(2);
+        orderbook.cancel_order(3);
+
+        assert_eq!(orderbook.size(), 0);
+    }
+
+    #[test]
+    fn test_order_modify_order(){
+        let mut orderbook = Orderbook::new(BTreeMap::new(),BTreeMap::new());
+        orderbook.add_order(Order::new_shared(OrderType::GoodTillCancel, 1, Side::Buy, 100, 10));
+        orderbook.add_order(Order::new_shared(OrderType::GoodTillCancel, 2, Side::Buy, 100, 10));
+
+        //create modification
+        let order_mod = OrderModify::new(2, Side::Sell, 100, 10);
+
+        //should match and fill order with id 1
+        orderbook.modify_order(order_mod);
+        assert_eq!(orderbook.size(), 0);
+
+
+        
+
+
+
+
+
+
+    }
     
 
 }
