@@ -297,30 +297,37 @@ impl Orderbook{
         self.match_orders()
     }
 
-    pub fn cancel_order(&mut self, order_id : OrderId){
-        if !self.orders.contains_key(&order_id){
-            return;
-        }
-
-        let entry = &self.orders[&order_id];
-        let order = entry.order.clone();
-        let index = entry.location;
-
-        self.orders.remove(&order_id);
-
-        if order.borrow().get_side() == Side::Sell{
-            let price = order.borrow().get_price();
-            let orders = self.asks.get_mut(&price).unwrap();
-            orders.remove(index);
-            if orders.is_empty(){
-                self.asks.remove(&price);
-            }
-        } else {
-            let price = order.borrow().get_price();
-            let orders = self.bids.get_mut(&price).unwrap();
-            orders.remove(index);
-            if orders.is_empty(){
-                self.bids.remove(&price);
+    pub fn cancel_order(&mut self, order_id: OrderId) {
+        if let Some(entry) = self.orders.remove(&order_id) {
+            let price = entry.order.borrow().get_price();
+            let side = entry.order.borrow().get_side();
+            let location = entry.location;
+    
+            let maybe_queue = match side {
+                Side::Buy => self.bids.get_mut(&price),
+                Side::Sell => self.asks.get_mut(&price),
+            };
+    
+            if let Some(queue) = maybe_queue {
+                let last_index = queue.len() - 1;
+                queue.swap_remove(location);
+    
+                // Fix the index of the order that was moved (if not the one we removed)
+                if location < queue.len() {
+                    let moved_order = &queue[location];
+                    let moved_id = moved_order.borrow().get_order_id();
+                    if let Some(moved_entry) = self.orders.get_mut(&moved_id) {
+                        moved_entry.location = location;
+                    }
+                }
+                
+                // If queue is empty now, remove the price level
+                if queue.is_empty() {
+                    match side {
+                        Side::Buy => { self.bids.remove(&price); }
+                        Side::Sell => { self.asks.remove(&price); }
+                    }
+                }
             }
         }
     }
