@@ -523,14 +523,40 @@ mod test {
         //should match and fill order with id 1
         orderbook.modify_order(order_mod);
         assert_eq!(orderbook.size(), 0);
+    }
 
+    #[test]
+    fn test_orderbook_will_cancel_fnk(){
+        let mut orderbook = Orderbook::new(BTreeMap::new(),BTreeMap::new());
 
+        // match should completely fill
+        orderbook.add_order(Order::new_shared(OrderType::GoodTillCancel, 2, Side::Sell, 100, 10));
+        orderbook.add_order(Order::new_shared(OrderType::FillAndKill, 1, Side::Buy, 100, 10));
+        
+        
+        //Unmatched F&K (should cancel)
+        orderbook.add_order(Order::new_shared(OrderType::GoodTillCancel, 3, Side:: Buy, 250, 5));
+        orderbook.add_order(Order::new_shared(OrderType::FillAndKill, 4, Side::Buy, 100, 10));
+
+        assert_eq!(orderbook.size(), 1);
+
+    }
+
+    #[test]
+    fn test_orderbook_wont_match(){
+        let mut ob1 = Orderbook::new(BTreeMap::new(),BTreeMap::new());
+        let mut ob2 = Orderbook::new(BTreeMap::new(),BTreeMap::new());
         
 
+        //Same side
+        ob1.add_order(Order::new_shared(OrderType::GoodTillCancel, 1, Side::Buy, 1, 1));
+        ob1.add_order(Order::new_shared(OrderType::GoodTillCancel, 2, Side::Buy, 1, 1));
 
-
-
-
+        //Ask higher than bid
+        ob2.add_order(Order::new_shared(OrderType::GoodTillCancel, 1, Side::Buy, 1, 1));
+        ob2.add_order(Order::new_shared(OrderType::GoodTillCancel, 2, Side::Sell, 2, 1));
+        
+        assert_eq!(ob1.size(), ob2.size());
 
     }
     
