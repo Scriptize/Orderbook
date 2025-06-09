@@ -8,7 +8,7 @@ use tokio::{
 async fn main() {
     let mut stream = TcpStream::connect("127.0.0.1:7000").await.unwrap();
     let duration: u32 = 7;
-    let send_at = duration - 1;
+    let send_at = duration - 1; //need to send before not at timeout
     stream.write_all(&duration.to_be_bytes()).await;
     
     loop {
@@ -23,7 +23,7 @@ async fn main() {
             }
         }
 
-        sleep(Duration::from_secs(send_at.into())).await;
+        sleep(Duration::from_secs(send_at.into())).await; //11
     }
 
 }

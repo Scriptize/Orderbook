@@ -4,6 +4,8 @@ use tokio::{
     time::{timeout, Duration}
 };
 
+use std::net::Shutdown;
+
 #[tokio::main]
 async fn main() {
     let listener = TcpListener::bind("127.0.0.1:7000").await.unwrap();
@@ -23,14 +25,15 @@ async fn main() {
             println!("Invalid connection: no heartbeat set");
             return;
         }
+            //  stream.shutdown(std::net::Shutdown::Write).expect("Shutdown failed");
     }
      
     
     
 
     tokio::spawn(async move {
-        loop {
-            
+        let mut count = 0;
+        while count < 3 {
             let mut buf = [0u8; 2];
             let res2 = timeout(Duration::from_secs(timer.into()), socket.read_exact(&mut buf)).await;
 
@@ -45,7 +48,11 @@ async fn main() {
                     return;
                 }
             }
+            count += 1;
         }
+        socket.shutdown().await.expect("Shutdown failed");
+        socket.flush().await.expect("Flush failed");
+        drop(socket);
     }).await;
 }
 
