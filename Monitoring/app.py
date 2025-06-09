@@ -26,9 +26,25 @@ def page():
     match_log = ui.log().classes('w-full h-80')
     sys_log = ui.log().classes('w-full h-80')
 
+    # Initialize theme state
+    is_dark_mode = False
+
+    # Dark mode toggle button
+    dark_mode_button = ui.button('Toggle Dark Mode').on_click(lambda: toggle_dark_mode())
+
+    def toggle_dark_mode():
+        nonlocal is_dark_mode
+        is_dark_mode = not is_dark_mode  # Toggle the state
+        # Use JavaScript to change the CSS
+        ui.run_javascript(f"""
+            document.body.style.backgroundColor = '{'black' if is_dark_mode else 'white'}';
+            document.body.style.color = '{'white' if is_dark_mode else 'black'}';
+        """)
+
+    # Uncomment the following lines if you want to use logging handlers
     # update_hdl = LogElementHandler(update_log)
     # match_hdl = LogElementHandler(match_log)
-    # sys_hdl =  LogElementHandler(sys_log)
+    # sys_hdl = LogElementHandler(sys_log)
 
     # logger.addHandler(update_hdl)
     # logger.addHandler(match_hdl)
@@ -38,8 +54,6 @@ def page():
     # ui.context.client.on_disconnect(lambda: logger.removeHandler(match_hdl))
     # ui.context.client.on_disconnect(lambda: logger.removeHandler(sys_hdl))
 
-    ui.timer(random.randint(1, 2), lambda: leos_func(random.randint(1, 5), update_log = update_log, matches_log = match_log, systems_log = sys_log))
-
-
+    ui.timer(random.randint(1, 2), lambda: leos_func(random.randint(1, 5), update_log=update_log, matches_log=match_log, systems_log=sys_log))
 
 ui.run()
