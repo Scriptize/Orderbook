@@ -7,7 +7,9 @@ use tokio::{
 #[tokio::main]
 async fn main() {
     let mut stream = TcpStream::connect("127.0.0.1:7000").await.unwrap();
-
+    let duration: u32 = 7;
+    stream.write_all(&duration.to_be_bytes()).await;
+    
     loop {
         stream.write_all(b"HB").await.unwrap();
 
@@ -20,6 +22,7 @@ async fn main() {
             }
         }
 
-        sleep(Duration::from_secs(5)).await;
+        sleep(Duration::from_secs(duration.into())).await;
     }
+
 }
