@@ -30,7 +30,7 @@ async fn main() {
 
     tokio::spawn(async move {
         loop {
-
+            
             let mut buf = [0u8; 2];
             let res2 = timeout(Duration::from_secs(timer.into()), socket.read_exact(&mut buf)).await;
 
@@ -46,6 +46,6 @@ async fn main() {
                 }
             }
         }
-    });
+    }).await;
 }
 
