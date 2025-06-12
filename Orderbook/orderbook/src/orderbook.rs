@@ -1,3 +1,4 @@
+
 use std::{
     rc::Rc,
     cell::RefCell,
@@ -7,7 +8,10 @@ use std::{
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum OrderType {
     GoodTillCancel,
+    GoodForDay,
     FillAndKill,
+    FillOrKill,
+    Market,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -83,7 +87,7 @@ impl Order {
         price: Price,
         quantity: Quantity,
     ) -> Rc<RefCell<Self>> {
-        Rc::new(RefCell::new(Self {
+        Rc::new(RefCell::new(Self{
             order_type,
             order_id,
             side,
@@ -93,6 +97,21 @@ impl Order {
             filled_quantity: 0,
             filled: false,
         }))
+    }
+
+    pub fn new_market(
+        order_id: OrderId,
+        side: Side,
+        quantity: Quantity,
+    ) -> Rc<RefCell<Self>> {
+        // Use an obviously invalid price for market orders, e.g., i32::MIN
+        Self::new_shared(
+            OrderType::Market,
+            order_id,
+            side,
+            i32::MIN,
+            quantity
+        )
     }
 
     pub const fn get_order_id(&self) -> OrderId {
