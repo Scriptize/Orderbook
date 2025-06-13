@@ -60,27 +60,8 @@ pub struct Order {
 }
 
 impl Order {
-    pub fn new(
-        order_type: OrderType,
-        order_id: OrderId,
-        side: Side,
-        price: Price,
-        quantity: Quantity,
-    ) -> Self {
-        Self {
-            order_type,
-            order_id,
-            side,
-            price,
-            initial_quantity: quantity,
-            remaining_quantity: quantity,
-            filled_quantity: 0,
-            filled: false,
-        }
-    }
-
     //new pointer to order; will be used most of the time
-    pub fn new_shared(
+    pub fn new(
         order_type: OrderType,
         order_id: OrderId,
         side: Side,
@@ -102,16 +83,28 @@ impl Order {
     pub fn new_market(
         order_id: OrderId,
         side: Side,
-        quantity: Quantity,
+        quantity: Quantity, 
     ) -> Rc<RefCell<Self>> {
         // Use an obviously invalid price for market orders, e.g., i32::MIN
-        Self::new_shared(
+        Self::new(
             OrderType::Market,
             order_id,
             side,
             i32::MIN,
             quantity
         )
+    }
+
+    pub fn to_good_till_cancel(&mut self, price: Price) -> Result<(), String> {
+        if self.get_order_type() != OrderType::Market {
+            return Err("Order cannot be filled for more than its remaining quantity.".to_string());
+        }
+        if self.get_price() == i32::MIN {
+            return Err("Order must be a tradable price".to_string());
+        }
+        self.price = price;
+        self.order_type = OrderType::GoodTillCancel;
+        Ok(())
     }
 
     pub const fn get_order_id(&self) -> OrderId {
@@ -189,13 +182,13 @@ impl OrderModify {
     }
 
     pub fn to_order_pointer(&self, order_type: OrderType) -> OrderPointer {
-        Rc::new(RefCell::new(Order::new(
+        Order::new(
             order_type,
             self.get_order_id(),
             self.get_side(),
             self.get_price(),
             self.get_quantity(),
-        )))
+        )
     }
 }
 
@@ -292,6 +285,18 @@ impl Orderbook{
         //check if order exist
         if self.orders.contains_key(&order.borrow().get_order_id()){
             return vec![];
+        }
+
+        if order.borrow().get_order_type() == OrderType::Market{
+            if order.borrow().get_side() == Side::Buy && !self.asks.is_empty(){
+                let (worst_ask, _) = self.asks.iter().next().unwrap();
+            }
+            else if order.borrow().get_side() == Side::Buy && !self.asks.is_empty(){
+                let (worst_ask, _) = self.asks.iter().next().unwrap();
+            }
+            else{
+                return vec![]
+            }
         }
         //check if order is a FillAndKill that can't match
         if order.borrow().get_order_type() == OrderType::FillAndKill && !self.can_match(order.borrow().get_side(), order.borrow().get_price()){
@@ -495,6 +500,7 @@ impl Orderbook{
 
 /// Tests:
 
+//Each test implicitly assumes a working match_orders() functionality
 #[cfg(test)]
 mod test {
     use super::*;
@@ -508,9 +514,9 @@ mod test {
     #[test]
     fn test_orderbook_add_order(){
         let mut orderbook = Orderbook::new(BTreeMap::new(), BTreeMap::new());
-        orderbook.add_order(Order::new_shared(OrderType::GoodTillCancel, 1, Side::Buy, 100, 10));
-        orderbook.add_order(Order::new_shared(OrderType::GoodTillCancel, 2, Side::Buy, 100, 10));
-        orderbook.add_order(Order::new_shared(OrderType::GoodTillCancel, 3, Side::Buy, 100, 10));
+        orderbook.add_order(Order::new(OrderType::GoodTillCancel, 1, Side::Buy, 100, 10));
+        orderbook.add_order(Order::new(OrderType::GoodTillCancel, 2, Side::Buy, 100, 10));
+        orderbook.add_order(Order::new(OrderType::GoodTillCancel, 3, Side::Buy, 100, 10));
         
         assert_eq!(orderbook.size(), 3);
     }
@@ -519,10 +525,9 @@ mod test {
     fn test_orderbook_cancel_order(){
         let mut orderbook = Orderbook::new(BTreeMap::new(), BTreeMap::new());
 
-        orderbook.add_order(Order::new_shared(OrderType::GoodTillCancel, 1, Side::Buy, 100, 10));
-        orderbook.add_order(Order::new_shared(OrderType::GoodTillCancel, 2, Side::Buy, 100, 10));
-        orderbook.add_order(Order::new_shared(OrderType::GoodTillCancel, 3, Side::Buy, 100, 10));
-        println!("{:?}", orderbook.get_order_infos());
+        orderbook.add_order(Order::new(OrderType::GoodTillCancel, 1, Side::Buy, 100, 10));
+        orderbook.add_order(Order::new(OrderType::GoodTillCancel, 2, Side::Buy, 100, 10));
+        orderbook.add_order(Order::new(OrderType::GoodTillCancel, 3, Side::Buy, 100, 10));
         orderbook.cancel_order(1);
         orderbook.cancel_order(2);
         orderbook.cancel_order(3);
@@ -533,8 +538,8 @@ mod test {
     #[test]
     fn test_order_modify_order(){
         let mut orderbook = Orderbook::new(BTreeMap::new(),BTreeMap::new());
-        orderbook.add_order(Order::new_shared(OrderType::GoodTillCancel, 1, Side::Buy, 100, 10));
-        orderbook.add_order(Order::new_shared(OrderType::GoodTillCancel, 2, Side::Buy, 100, 10));
+        orderbook.add_order(Order::new(OrderType::GoodTillCancel, 1, Side::Buy, 100, 10));
+        orderbook.add_order(Order::new(OrderType::GoodTillCancel, 2, Side::Buy, 100, 10));
 
         //create modification
         let order_mod = OrderModify::new(2, Side::Sell, 100, 10);
@@ -549,13 +554,13 @@ mod test {
         let mut orderbook = Orderbook::new(BTreeMap::new(),BTreeMap::new());
 
         // match should completely fill
-        orderbook.add_order(Order::new_shared(OrderType::GoodTillCancel, 2, Side::Sell, 100, 10));
-        orderbook.add_order(Order::new_shared(OrderType::FillAndKill, 1, Side::Buy, 100, 10));
+        orderbook.add_order(Order::new(OrderType::GoodTillCancel, 2, Side::Sell, 100, 10));
+        orderbook.add_order(Order::new(OrderType::FillAndKill, 1, Side::Buy, 100, 10));
         
         
         //Unmatched F&K (should cancel)
-        orderbook.add_order(Order::new_shared(OrderType::GoodTillCancel, 3, Side:: Buy, 250, 5));
-        orderbook.add_order(Order::new_shared(OrderType::FillAndKill, 4, Side::Buy, 100, 10));
+        orderbook.add_order(Order::new(OrderType::GoodTillCancel, 3, Side:: Buy, 250, 5));
+        orderbook.add_order(Order::new(OrderType::FillAndKill, 4, Side::Buy, 100, 10));
 
         assert_eq!(orderbook.size(), 1);
 
@@ -568,12 +573,12 @@ mod test {
         
 
         //Same side
-        ob1.add_order(Order::new_shared(OrderType::GoodTillCancel, 1, Side::Buy, 1, 1));
-        ob1.add_order(Order::new_shared(OrderType::GoodTillCancel, 2, Side::Buy, 1, 1));
+        ob1.add_order(Order::new(OrderType::GoodTillCancel, 1, Side::Buy, 1, 1));
+        ob1.add_order(Order::new(OrderType::GoodTillCancel, 2, Side::Buy, 1, 1));
 
         //Ask higher than bid
-        ob2.add_order(Order::new_shared(OrderType::GoodTillCancel, 1, Side::Buy, 1, 1));
-        ob2.add_order(Order::new_shared(OrderType::GoodTillCancel, 2, Side::Sell, 2, 1));
+        ob2.add_order(Order::new(OrderType::GoodTillCancel, 1, Side::Buy, 1, 1));
+        ob2.add_order(Order::new(OrderType::GoodTillCancel, 2, Side::Sell, 2, 1));
         
         assert_eq!(ob1.size(), ob2.size());
 

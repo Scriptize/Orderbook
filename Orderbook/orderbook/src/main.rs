@@ -10,8 +10,8 @@ use crate::orderbook::{Orderbook, Order, OrderType, Side};
 fn main() {
     let mut orderbook = Orderbook::new(BTreeMap::new(), BTreeMap::new());
 
-        orderbook.add_order(Order::new_shared(OrderType::GoodTillCancel, 1, Side::Buy, 100, 10));
-        orderbook.add_order(Order::new_shared(OrderType::GoodTillCancel, 2, Side::Buy, 100, 10));
+        orderbook.add_order(Order::new(OrderType::GoodTillCancel, 1, Side::Buy, 100, 10));
+        orderbook.add_order(Order::new(OrderType::GoodTillCancel, 2, Side::Buy, 100, 10));
         // orderbook.add_order(Order::new_shared(OrderType::GoodTillCancel, 3, Side::Buy, 100, 10));
         println!("BEFORE CANCELS");
         println!("{:#?}", orderbook);
