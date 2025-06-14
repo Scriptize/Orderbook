@@ -1,8 +1,13 @@
+#![allow(unused)]
 
 use std::{
     rc::Rc,
     cell::RefCell,
-    collections::{BTreeMap, HashMap}
+    collections::{BTreeMap, HashMap},
+    thread::{self, JoinHandle},
+    sync::{Arc, Mutex, Condvar},
+    sync::atomic::{AtomicBool, Ordering},
+    time::{Duration, Instant, SystemTime}
 };
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -234,19 +239,50 @@ pub struct Orderbook{
     bids: BTreeMap<Price, OrderPointers>,
     asks: BTreeMap<Price, OrderPointers>,
     orders: HashMap<OrderId, OrderEntry>,
+    orders_prune_thread: Option<JoinHandle<()>>,
+    shutdown_condition_variable: Condvar,
+    shutdown: AtomicBool,
+
 }
 
 impl Orderbook{
     pub fn new(
-        bids: BTreeMap<Price,OrderPointers>, 
-        asks: BTreeMap<Price, OrderPointers>) -> Self
-        {
-            Self{
-                bids,
-                asks,
-                orders: HashMap::new(),
-            }
+        bids: BTreeMap<Price, OrderPointers>,
+        asks: BTreeMap<Price, OrderPointers>,
+    ) -> Self {
+        Self {
+            bids,
+            asks,
+            orders: HashMap::new(),
+            orders_prune_thread: None,
+            shutdown_condition_variable: Condvar::new(),
+            shutdown: AtomicBool::new(false),
         }
+    }
+
+    /// Creates an `Arc<Mutex<Orderbook>>` and starts the prune thread.
+    pub fn build(
+        bids: BTreeMap<Price, OrderPointers>,
+        asks: BTreeMap<Price, OrderPointers>,
+    ) -> Arc<Mutex<Self>> {
+        let orderbook = Arc::new(Mutex::new(Orderbook::new(bids, asks)));
+        let orderbook_clone = Arc::clone(&orderbook);
+
+        // Start the prune thread after construction
+        let handle = thread::spawn(move || {
+            let mut ob = orderbook_clone.lock().unwrap();
+            ob.prune_gfd_orders();
+        });
+
+        // Store the handle in the struct
+        {
+            let mut ob = orderbook.lock().unwrap();
+            ob.orders_prune_thread = Some(handle);
+        }
+
+        orderbook
+    }
+
 
     pub fn size(&self) -> usize {
         self.orders.len()
@@ -493,6 +529,20 @@ impl Orderbook{
             }
         }
         trades
+    }
+    fn prune_gfd_orders(&mut self) {
+        todo!();
+    }
+}
+
+impl Drop for Orderbook{
+    fn drop(&mut self){
+        self.shutdown.store(true, Ordering::Release);
+        self.shutdown_condition_variable.notify_one();
+
+        if let Some(handle) = self.orders_prune_thread.take() {
+        handle.join().expect("Failed to join orders_prune_thread");
+        }
     }
 }
         
