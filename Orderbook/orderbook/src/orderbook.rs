@@ -100,15 +100,14 @@ impl Order {
     }
 
     pub fn to_good_till_cancel(&mut self, price: Price) -> Result<(), String> {
-        if self.get_order_type() != OrderType::Market {
-            return Err("Order cannot be filled for more than its remaining quantity.".to_string());
+        match self.get_order_type(){
+            OrderType::Market => {
+                self.price = price;
+                self.order_type = OrderType::GoodTillCancel;
+                Ok(())
+            }
+            _ => return Err("Order cannot have its price adjusted, only market orders can.".to_string()),
         }
-        if self.get_price() == i32::MIN {
-            return Err("Order must be a tradable price".to_string());
-        }
-        self.price = price;
-        self.order_type = OrderType::GoodTillCancel;
-        Ok(())
     }
 
     pub const fn get_order_id(&self) -> OrderId {
@@ -328,7 +327,7 @@ impl InnerOrderbook {
 
     pub fn add_order(&mut self, order: OrderPointer) -> Trades {
         let mut ord = order.lock().unwrap();
-        if self.orders.contains_key(&ord.get_order_id()) {
+        if self.orders.contains_key(&ord.get_order_id()){
             return vec![];
         }
 
@@ -374,6 +373,7 @@ impl InnerOrderbook {
 
         self.match_orders()
     }
+
 
     pub fn cancel_order(&mut self, order_id: OrderId) {
         if let Some(entry) = self.orders.remove(&order_id) {
@@ -563,15 +563,12 @@ mod test {
         orderbook.add_order(Order::new(OrderType::GoodTillCancel, 1, Side::Buy, 100, 10));
         orderbook.add_order(Order::new(OrderType::GoodTillCancel, 2, Side::Buy, 100, 10));
     
-        println!("NO LOOP ADDING ORDERS");
 
         //create modification
         let order_mod = OrderModify::new(2, Side::Sell, 100, 10);
-        println!("NO LOOP CREATING MODIFICATION");
 
         //should match and fill order with id 1
         orderbook.modify_order(order_mod);
-        println!("NO LOOP APPLYING MODIFICATION");
         assert_eq!(orderbook.size(), 0);
         
 
@@ -610,6 +607,25 @@ mod test {
         ob2.add_order(Order::new(OrderType::GoodTillCancel, 2, Side::Sell, 2, 1));
         
         assert_eq!(ob1.size(), ob2.size());
+
+    }
+
+    #[test]
+    fn test_add_market_order(){
+        let mut ob = Orderbook::new(BTreeMap::new(),BTreeMap::new());
+
+        ob.add_order(Order::new(OrderType::GoodTillCancel, 1, Side::Buy, 100, 10));
+        ob.add_order(Order::new(OrderType::GoodTillCancel, 2, Side::Buy, 150, 10));
+        // No orders can match
+        ob.add_order(Order::new(OrderType::GoodTillCancel, 3, Side::Sell, 200, 10));
+        ob.add_order(Order::new(OrderType::GoodTillCancel, 4, Side::Sell, 300, 10));
+
+        // Will match worst sell order (300); asks should be left with 1 
+        ob.add_order(Order::new_market(5, Side::Buy, 10));
+        let level_infos = ob.get_order_infos();
+        let asks = level_infos.get_asks();
+
+        assert_eq!(asks.len(), 1);
 
     }
     
