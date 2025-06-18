@@ -6,8 +6,8 @@ use std::{
     thread::{self, JoinHandle},
     sync::{Arc, Mutex, Condvar},
     sync::atomic::{AtomicBool, Ordering},
-    time::{Duration, Instant, SystemTime}
 };
+use chrono::{Local, NaiveDateTime, TimeDelta, DateTime, Timelike};
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum OrderType {
@@ -504,7 +504,23 @@ impl InnerOrderbook {
     }
 
     fn prune_gfd_orders(&mut self) {
-        todo!();
+        todo!()
+        // let day_length = Local::now() + TimeDelta::seconds(10);
+
+        // loop {
+        //     let now = Local::now();
+        //     let now_timestamp = now.timestamp();
+        //     let mut now_parts = DateTime::from_timestamp(now_timestamp, 0).unwrap();
+            
+        //     if now_parts.hour() >= day_length{
+        //         //figure out how to increment day
+        //         // now_parts.hour
+        //     }
+
+            
+        // }
+
+
     }
 }
 
