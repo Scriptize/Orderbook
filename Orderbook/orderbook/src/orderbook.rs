@@ -732,16 +732,17 @@ mod test {
         let ob = Orderbook::build(BTreeMap::new(), BTreeMap::new(), true);
         ob.add_order(Order::new(OrderType::GoodForDay, 1, Side::Buy, 100, 10));
         ob.add_order(Order::new(OrderType::GoodForDay, 2, Side::Sell, 200, 10));
+        ob.add_order(Order::new(OrderType::GoodTillCancel, 3, Side::Sell, 1000, 10));
 
         // Find time until next hour
         let secs_until_next_hour = (59 - minute) * 60 + (60 - second);
         if secs_until_next_hour > 180 {
             // More than 3 minutes until next hour, pruning won't happen, just check size is 2
-            assert_eq!(ob.size(), 2);
+            assert_eq!(ob.size(), 3);
         } else {
             // Within 3 minutes of next hour, pruning may happen soon
             thread::sleep(std::time::Duration::from_millis(200)); // Give prune thread time to run
-            assert_eq!(ob.size(), 0);
+            assert_eq!(ob.size(), 1);
         }
     }
 }
