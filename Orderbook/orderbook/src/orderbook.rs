@@ -6,6 +6,7 @@ use std::{
     thread::{self, JoinHandle},
     sync::{Arc, Mutex, Condvar},
     sync::atomic::{AtomicBool, Ordering},
+    time::{Duration, SystemTime, UNIX_EPOCH}
 };
 use chrono::{Local, NaiveDateTime, TimeDelta, DateTime, Timelike};
 
@@ -245,12 +246,12 @@ impl Orderbook {
         }
     }
 
-    pub fn build(bids: BTreeMap<Price, OrderPointers>, asks: BTreeMap<Price, OrderPointers>) -> Self {
+    pub fn build(bids: BTreeMap<Price, OrderPointers>, asks: BTreeMap<Price, OrderPointers>, test_mode: bool) -> Self {
         let mut book = Self::new(bids, asks);
         let inner = Arc::clone(&book.inner);
         let handle = thread::spawn(move || {
             let mut ob = inner.lock().unwrap();
-            ob.prune_gfd_orders();
+            ob.prune_gfd_orders(test_mode);
         });
         book.inner.lock().unwrap().orders_prune_thread = Some(handle);
         book
@@ -428,6 +429,7 @@ impl InnerOrderbook {
         }
     }
 
+
     fn match_orders(&mut self) -> Trades {
         let mut trades = Vec::with_capacity(self.orders.len());
         let mut pending_cancels = Vec::new();
@@ -503,27 +505,101 @@ impl InnerOrderbook {
         trades
     }
 
-    fn prune_gfd_orders(&mut self) {
-        todo!()
-        // let day_length = Local::now() + TimeDelta::seconds(10);
+    
+    fn prune_gfd_orders(&mut self, test_mode: bool) {
+        let end_hour = 16;
+        println!("end_hour: {}", end_hour);
 
-        // loop {
-        //     let now = Local::now();
-        //     let now_timestamp = now.timestamp();
-        //     let mut now_parts = DateTime::from_timestamp(now_timestamp, 0).unwrap();
+        loop {
+            println!("Started Loop!");
+            let now = SystemTime::now();
+            let now_duration = now.duration_since(UNIX_EPOCH).unwrap();
+            println!("now_duration: {:?}", now_duration);
+            let now_secs = now_duration.as_secs() as i64;
+            println!("now_secs: {}", now_secs);
             
-        //     if now_parts.hour() >= day_length{
-        //         //figure out how to increment day
-        //         // now_parts.hour
-        //     }
+            let now_parts = DateTime::from_timestamp(now_secs, 0).unwrap();
+            println!("now_parts: {:?}", now_parts);
+            let mut date = now_parts.date_naive();
+            println!("date: {}", date);
+            let hour = now_parts.hour();
+            println!("hour: {}", hour);
 
+            println!("Comparing hours!");
+            println!("Current hour is {}, end hour is {}", hour, end_hour);
+            if hour >= end_hour {
+                date = date.succ_opt().unwrap(); // move to next day
+                println!("Moved to next day, new date: {}", date);
+            }
+
+            let next_cutoff = date.and_hms_opt(end_hour, 0, 0).unwrap();
+            println!("next_cutoff: {}", next_cutoff);
+            let cutoff_ts = UNIX_EPOCH + Duration::from_secs(next_cutoff.and_utc().timestamp() as u64);
+            println!("cutoff_ts: {:?}", cutoff_ts);
+            let now_system_time = SystemTime::now();
+            println!("now_system_time: {:?}", now_system_time);
             
-        // }
+            println!("Finding wait duration");
+            let wait_duration = cutoff_ts
+                .duration_since(now_system_time)
+                .unwrap_or(Duration::from_secs(0)) + Duration::from_millis(100);
+            println!("wait_duration: {:?}", wait_duration);
 
+            // Use a dummy mutex for waiting on the condition variable.
+            let dummy_mutex = Mutex::new(());
+            let guard = dummy_mutex.lock().unwrap();
+            let (guard, result) = self.shutdown_condition_variable
+                .wait_timeout(guard, wait_duration)
+                .unwrap();
+            
+            println!("result.timed_out(): {}", result.timed_out());
+            println!("self.shutdown: {}", self.shutdown.load(Ordering::Acquire));
+            
+            println!("DEBUG: About to check shutdown condition");
+            if self.shutdown.load(Ordering::Acquire) {
+                println!("Shutdown requested, exiting prune_gfd_orders.");
+                return;
+            }
 
+            println!("DEBUG: About to check timeout condition");
+            if !result.timed_out() {
+                println!("Woke up early (not timed out), skipping pruning.");
+                continue;
+            }
+
+            println!("DEBUG: About to start pruning logic");
+            
+            // Pruning logic
+            println!("Pruning Orders!");
+            let mut order_ids = vec![];
+
+            println!("DEBUG: About to iterate over orders");
+            for (order_id, entry) in &self.orders {
+                println!("DEBUG: Checking order {}", order_id);
+                let order = entry.order.lock().unwrap();
+                println!("DEBUG: Order type: {:?}", order.get_order_type());
+                if order.get_order_type() == OrderType::GoodForDay {
+                    println!("DEBUG: Adding GFD order {} to cancellation list", order_id);
+                    order_ids.push(*order_id);
+                }
+            }
+            
+            println!("Found {} GFD orders to cancel", order_ids.len());
+
+            for id in order_ids {
+                println!("Canceling order with id: {}", id);
+                self.cancel_order(id);
+            }
+            
+            println!("Orders left: {}", self.orders.len());
+
+            if test_mode{
+                println!("Finished pruning! test mode on");
+                break;
+            }
+        }
     }
 }
-
 impl Drop for InnerOrderbook {
     fn drop(&mut self) {
         self.shutdown.store(true, Ordering::Release);
@@ -644,5 +720,28 @@ mod test {
         assert_eq!(asks.len(), 1);
 
     }
-    
+
+    #[test]
+    fn test_good_for_day_pruning() {
+        use chrono::Local;
+        let now = Local::now();
+        let minute = now.minute();
+        let second = now.second();
+        let hour = now.hour();
+
+        let ob = Orderbook::build(BTreeMap::new(), BTreeMap::new(), true);
+        ob.add_order(Order::new(OrderType::GoodForDay, 1, Side::Buy, 100, 10));
+        ob.add_order(Order::new(OrderType::GoodForDay, 2, Side::Sell, 200, 10));
+
+        // Find time until next hour
+        let secs_until_next_hour = (59 - minute) * 60 + (60 - second);
+        if secs_until_next_hour > 180 {
+            // More than 3 minutes until next hour, pruning won't happen, just check size is 2
+            assert_eq!(ob.size(), 2);
+        } else {
+            // Within 3 minutes of next hour, pruning may happen soon
+            thread::sleep(std::time::Duration::from_millis(200)); // Give prune thread time to run
+            assert_eq!(ob.size(), 0);
+        }
+    }
 }
