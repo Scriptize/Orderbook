@@ -233,6 +233,21 @@ struct OrderEntry{
     order: OrderPointer,
     location: usize,
 }
+
+#[derive(Debug)]
+struct LevelData{
+    pub quantity: Quantity
+    pub count: Quantity
+}
+
+impl LevelData{
+    enum Action {
+        Add,
+        Remove,
+        Match
+    }
+}
+
 #[derive(Debug)]
 pub struct Orderbook {
     inner: Arc<Mutex<InnerOrderbook>>,
@@ -280,6 +295,7 @@ impl Orderbook {
 
 #[derive(Debug)]
 pub struct InnerOrderbook {
+    data: HashMap<Price, LevelData>,
     bids: BTreeMap<Price, OrderPointers>,
     asks: BTreeMap<Price, OrderPointers>,
     orders: HashMap<OrderId, OrderEntry>,
@@ -407,6 +423,8 @@ impl InnerOrderbook {
                     }
                 }
             }
+            self.on_order_cancelled(order)
+
         }
     }
 
@@ -421,12 +439,68 @@ impl InnerOrderbook {
         self.cancel_order(order.get_order_id());
         self.add_order(order.to_order_pointer(order_type.unwrap()))
     }
+    fn update_level_data(&mut self, price: Price, quantity: Quantity, action: LevelData::Action){
+        let data = self.data.get(price);
+
+        match action {
+            LevelData::Action::Remove => data.count -= 1,
+            LevelData::Action::Add => data.count += 1,
+            _ => {},
+        }
+
+        if action == LevelData::Action::Remove || action == LevelData::Action::Match {
+            data.quantity -= quantity
+        } else {
+            data.quantity += quantity
+        }
+
+        if data.count == 0 {
+            data.remove(&price)
+        }
+
+    }
+    fn on_order_cancelled(&mut self, order: OrderPointer){
+        self.update_level_data(order.get_price(), order.get_initial_quantity(), LevelData::Action::Remove)
+    };
+    fn on_order_added(&mut self, order: OrderPointer) {
+        self.update_level_data(order.get_price(), order.get_initial_quantity(), LevelData::Action::Match)
+    }
+    fn on_order_matched(&mut self, order: OrderPointer, is_fully_filled: bool) {
+        let action = if is_fully_filled {
+            LevelData::Action::Remove
+        } else {
+            LevelData::Action::Match
+        };
+        self.update_level_data(order.get_price(), order.get_initial_quantity(), action);
+    }
 
     fn can_match(&self, side: Side, price: Price) -> bool {
         match side {
             Side::Buy => self.asks.first_key_value().map_or(false, |(ask, _)| price >= *ask),
             Side::Sell => self.bids.first_key_value().map_or(false, |(bid, _)| price <= *bid),
         }
+    }
+
+    fn can_fully_fill(&self, side: Side, price: Price, quantity: Quantity) -> bool {
+        todo!()
+        // if !can_match(side, price){
+        //     return false
+        // }
+
+        // let threshold = 0
+
+        // if side == Side::Buy{
+        //     let (ask_price, _) = self.asks.iter().next()
+        //     threshold = ask_price
+        // }else{
+        //     let (bid_price, _) = self.bids.iter().next_back()
+        //     threshold = ask_price
+        // }
+
+        
+        //loop to check level_price agaisnt threshold and quantity
+        
+
     }
 
 
@@ -470,6 +544,9 @@ impl InnerOrderbook {
                 TradeInfo { order_id: bid.get_order_id(), price: bid.get_price(), quantity: trade_quantity },
                 TradeInfo { order_id: ask.get_order_id(), price: ask.get_price(), quantity: trade_quantity },
             ));
+            
+            self.on_order_matched(bid.get_price(), trade_quantity, bid.is_filled())
+            self.on_order_matched(ask.get_price(), trade_quantity, ask.is_filled())
 
             if bid.is_filled() {
                 pending_cancels.push(bid.get_order_id());
