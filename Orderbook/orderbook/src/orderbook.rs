@@ -150,6 +150,8 @@ impl Order {
             if self.remaining_quantity == 0 {
                 self.filled = true;
             }
+            println!("Filling {} by {}", self.order_id, quantity);
+            println!("Before: rem={}, filled={}", self.remaining_quantity, self.filled_quantity);   
             Ok(())
         } else {
             Err("Order cannot be filled for more than it's remaining quantity.".to_string())
@@ -236,9 +238,11 @@ type Trades = Vec<Trade>;
 
 ///////////////////////////////////////
 #[derive(Debug)]
-struct OrderEntry{
+struct OrderEntry {
     order: OrderPointer,
     location: usize,
+    side: Side,
+    price: Price,
 }
 
 #[derive(Debug)]
@@ -344,50 +348,51 @@ impl InnerOrderbook {
     }
 
     pub fn add_order(&mut self, order: OrderPointer) -> Trades {
-        let mut ord = order.lock().unwrap();
-        if self.orders.contains_key(&ord.get_order_id()){
-            return vec![];
-        }
-
-        if ord.get_order_type() == OrderType::Market {
-            let result = match ord.get_side() {
-                Side::Buy if !self.asks.is_empty() => {
-                    let (worst_ask, _) = self.asks.iter().next_back().unwrap();
-                    ord.to_good_till_cancel(*worst_ask)
-                }
-                Side::Sell if !self.bids.is_empty() => {
-                    let (worst_bid, _) = self.bids.iter().next().unwrap();
-                    ord.to_good_till_cancel(*worst_bid)
-                }
-                _ => return vec![],
-            };
-            if result.is_err() {
+        {
+            let mut ord = order.lock().unwrap();
+            if self.orders.contains_key(&ord.get_order_id()){
                 return vec![];
             }
+
+            if ord.get_order_type() == OrderType::Market {
+                let result = match ord.get_side() {
+                    Side::Buy if !self.asks.is_empty() => {
+                        let (worst_ask, _) = self.asks.iter().next_back().unwrap();
+                        ord.to_good_till_cancel(*worst_ask)
+                    }
+                    Side::Sell if !self.bids.is_empty() => {
+                        let (worst_bid, _) = self.bids.iter().next().unwrap();
+                        ord.to_good_till_cancel(*worst_bid)
+                    }
+                    _ => return vec![],
+                };
+                if result.is_err() {
+                    return vec![];
+                }
+            }
+
+            let order_type = ord.get_order_type();
+            let side = ord.get_side();
+            let price = ord.get_price();
+
+            if order_type == OrderType::FillAndKill && !self.can_match(side, price) {
+                return vec![];
+            }
+
+            let mut index: usize = 0;
+            if side == Side::Buy {
+                let orders = &mut self.bids.entry(price).or_default();
+                orders.push(order.clone());
+                index = orders.len() - 1;
+            } else {
+                let orders = &mut self.asks.entry(price).or_default();
+                orders.push(order.clone());
+                index = orders.len() - 1;
+            }
+
+            let order_id = ord.get_order_id();
+            self.orders.insert(order_id, OrderEntry {order: order.clone(), location: index, side, price,});
         }
-
-        let order_type = ord.get_order_type();
-        let side = ord.get_side();
-        let price = ord.get_price();
-
-        if order_type == OrderType::FillAndKill && !self.can_match(side, price) {
-            return vec![];
-        }
-
-        let mut index: usize = 0;
-        if side == Side::Buy {
-            let orders = &mut self.bids.entry(price).or_default();
-            orders.push(order.clone());
-            index = orders.len() - 1;
-        } else {
-            let orders = &mut self.asks.entry(price).or_default();
-            orders.push(order.clone());
-            index = orders.len() - 1;
-        }
-
-        let order_id = ord.get_order_id();
-        self.orders.insert(order_id, OrderEntry { order: order.clone(), location: index });
-        // drop(ord);
         self.on_order_added(order.clone());
         self.match_orders()
     }
@@ -395,10 +400,7 @@ impl InnerOrderbook {
 
     pub fn cancel_order(&mut self, order_id: OrderId) {
         if let Some(entry) = self.orders.remove(&order_id) {
-            let order = entry.order.lock().unwrap();
-            let price = order.get_price();
-            let side = order.get_side();
-            let location = entry.location;
+            let OrderEntry { order, location, side, price } = entry;
 
             let maybe_queue = match side {
                 Side::Buy => self.bids.get_mut(&price),
@@ -419,15 +421,16 @@ impl InnerOrderbook {
 
                 if queue.is_empty() {
                     match side {
-                        Side::Buy => { self.bids.remove(&price); },
-                        Side::Sell => { self.asks.remove(&price); },
+                        Side::Buy => { self.bids.remove(&price); }
+                        Side::Sell => { self.asks.remove(&price); }
                     }
                 }
             }
-            self.on_order_cancelled(entry.order.clone())
 
+            self.on_order_cancelled(order.clone());
         }
     }
+
 
     pub fn modify_order(&mut self, order: OrderModify) -> Trades {
         let order_type = self.orders.get(&order.get_order_id())
@@ -440,25 +443,26 @@ impl InnerOrderbook {
         self.cancel_order(order.get_order_id());
         self.add_order(order.to_order_pointer(order_type.unwrap()))
     }
-    fn update_level_data(&mut self, price: Price, quantity: Quantity, action: LevelDataAction){
-        let mut data = self.data.get_mut(&price).unwrap();
+    fn update_level_data(&mut self, price: Price, quantity: Quantity, action: LevelDataAction) {
+        let data = self.data.entry(price).or_insert(LevelData { quantity: 0, count: 0 });
 
         match action {
-            LevelDataAction::Remove => data.count -= 1,
-            LevelDataAction::Add => data.count += 1,
-            _ => {},
-        }
-
-        if action == LevelDataAction::Remove || action == LevelDataAction::Match {
-            data.quantity -= quantity
-        } else {
-            data.quantity += quantity
+            LevelDataAction::Remove => {
+                data.count = data.count.saturating_sub(1);
+                data.quantity = data.quantity.saturating_sub(quantity);
+            },
+            LevelDataAction::Add => {
+                data.count += 1;
+                data.quantity += quantity;
+            },
+            LevelDataAction::Match => {
+                data.quantity = data.quantity.saturating_sub(quantity);
+            },
         }
 
         if data.count == 0 {
             self.data.remove(&price);
         }
-
     }
     fn on_order_cancelled(&mut self, order: OrderPointer){
         let ord = order.lock().unwrap();
@@ -507,39 +511,36 @@ impl InnerOrderbook {
 
     }
 
+    fn remove_order_from_book(&mut self, order_id: OrderId, price: Price, side: Side) {
+        let book = match side {
+            Side::Buy => &mut self.bids,
+            Side::Sell => &mut self.asks,
+        };
+
+        if let Some(queue) = book.get_mut(&price) {
+            queue.retain(|o| o.lock().unwrap().get_order_id() != order_id);
+            if queue.is_empty() {
+                book.remove(&price);
+            }
+        }
+
+        self.orders.remove(&order_id);
+    }
 
     fn match_orders(&mut self) -> Trades {
     let mut trades = Vec::with_capacity(self.orders.len());
-    let mut pending_cancels = Vec::new();
 
     loop {
         if self.bids.is_empty() || self.asks.is_empty() {
             break;
         }
 
-        // Step 1: extract best bid and ask by temporarily creating binding to iterators
-        let best_bid = {
-            let mut bid_iter = self.bids.iter_mut();
-            match bid_iter.next_back() {
-                Some((p, b)) => Some((*p, b)),
-                None => None,
-            }
-        };
-
-        let best_ask = {
-            let mut ask_iter = self.asks.iter_mut();
-            match ask_iter.next() {
-                Some((p, a)) => Some((*p, a)),
-                None => None,
-            }
-        };
-
-        let (bid_price, bids) = match best_bid {
-            Some(x) => x,
+        let (bid_price, bids) = match self.bids.iter_mut().next_back() {
+            Some((p, b)) => (*p, b),
             None => break,
         };
-        let (ask_price, asks) = match best_ask {
-            Some(x) => x,
+        let (ask_price, asks) = match self.asks.iter_mut().next() {
+            Some((p, a)) => (*p, a),
             None => break,
         };
 
@@ -547,16 +548,22 @@ impl InnerOrderbook {
             break;
         }
 
-        let bid_order_ptr = bids[0].clone();
-        let ask_order_ptr = asks[0].clone();
+        let bid_order_ptr = bids.get(0).cloned();
+        let ask_order_ptr = asks.get(0).cloned();
 
-        // Step 2: fill and extract metadata
-        let (bid_filled, ask_filled, bid_id, ask_id, trade_quantity, final_bid_price, final_ask_price);
+        let (bid_order_ptr, ask_order_ptr) = match (bid_order_ptr, ask_order_ptr) {
+            (Some(b), Some(a)) => (b, a),
+            _ => break,
+        };
+
+        let (bid_filled, ask_filled, bid_id, ask_id, trade_quantity, final_bid_price, final_ask_price, bid_type, ask_type);
         {
             let mut bid = bid_order_ptr.lock().unwrap();
             let mut ask = ask_order_ptr.lock().unwrap();
 
             trade_quantity = bid.get_remaining_quantity().min(ask.get_remaining_quantity());
+
+            // If nothing to match, break or handle F&K
             if trade_quantity == 0 {
                 break;
             }
@@ -565,19 +572,13 @@ impl InnerOrderbook {
             ask.fill(trade_quantity).ok();
 
             bid_filled = bid.is_filled();
-            bid_id = bid.get_order_id();
-            final_bid_price = bid.get_price();
-
             ask_filled = ask.is_filled();
+            bid_id = bid.get_order_id();
             ask_id = ask.get_order_id();
+            final_bid_price = bid.get_price();
             final_ask_price = ask.get_price();
-        }
-
-        if bid_filled {
-            pending_cancels.push(bid_id);
-        }
-        if ask_filled {
-            pending_cancels.push(ask_id);
+            bid_type = bid.get_order_type();
+            ask_type = ask.get_order_type();
         }
 
         trades.push(Trade::new(
@@ -585,33 +586,31 @@ impl InnerOrderbook {
             TradeInfo { order_id: ask_id, price: final_ask_price, quantity: trade_quantity },
         ));
 
-        // Step 3: all prior borrows are dropped; safe to mutably borrow self again
         self.on_order_matched(bid_order_ptr.clone(), bid_filled);
         self.on_order_matched(ask_order_ptr.clone(), ask_filled);
 
-        if let Some((_, bids)) = self.bids.iter().next_back() {
-            if let Ok(order) = bids[0].lock() {
-                if order.get_order_type() == OrderType::FillAndKill {
-                    pending_cancels.push(order.get_order_id());
-                }
-            }
+        // Fully filled orders
+        if bid_filled {
+            self.remove_order_from_book(bid_id, final_bid_price, Side::Buy);
         }
 
-        if let Some((_, asks)) = self.asks.iter().next() {
-            if let Ok(order) = asks[0].lock() {
-                if order.get_order_type() == OrderType::FillAndKill {
-                    pending_cancels.push(order.get_order_id());
-                }
-            }
+        if ask_filled {
+            self.remove_order_from_book(ask_id, final_ask_price, Side::Sell);
         }
-    }
 
-    for order_id in pending_cancels {
-        self.cancel_order(order_id);
+        // Remove partially filled F&K orders (should not persist)
+        if !bid_filled && bid_type == OrderType::FillAndKill {
+            self.remove_order_from_book(bid_id, final_bid_price, Side::Buy);
+        }
+
+        if !ask_filled && ask_type == OrderType::FillAndKill {
+            self.remove_order_from_book(ask_id, final_ask_price, Side::Sell);
+        }
     }
 
     trades
 }
+
 
     
 
@@ -814,15 +813,17 @@ mod test {
     #[test]
     fn test_add_market_order(){
         let mut ob = Orderbook::new(BTreeMap::new(),BTreeMap::new());
+        println!("Created orderbook!");
 
         ob.add_order(Order::new(OrderType::GoodTillCancel, 1, Side::Buy, 100, 10));
         ob.add_order(Order::new(OrderType::GoodTillCancel, 2, Side::Buy, 150, 10));
         // No orders can match
         ob.add_order(Order::new(OrderType::GoodTillCancel, 3, Side::Sell, 200, 10));
         ob.add_order(Order::new(OrderType::GoodTillCancel, 4, Side::Sell, 300, 10));
-
+        println!("Added incompatible orders!");
         // Will match worst sell order (300); asks should be left with 1 
         ob.add_order(Order::new_market(5, Side::Buy, 10));
+        println!("Added market order!");
         let level_infos = ob.get_order_infos();
         let asks = level_infos.get_asks();
 
