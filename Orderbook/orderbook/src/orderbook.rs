@@ -374,8 +374,13 @@ impl InnerOrderbook {
             let order_type = ord.get_order_type();
             let side = ord.get_side();
             let price = ord.get_price();
+            let initial_quantity = ord.get_initial_quantity();
 
             if order_type == OrderType::FillAndKill && !self.can_match(side, price) {
+                return vec![];
+            }
+
+            if order_type == OrderType::FillOrKill && !self.can_fully_fill(side, price, initial_quantity) {
                 return vec![];
             }
 
@@ -472,14 +477,13 @@ impl InnerOrderbook {
         let ord = order.lock().unwrap();
         self.update_level_data(ord.get_price(), ord.get_initial_quantity(), LevelDataAction::Match)
     }
-    fn on_order_matched(&mut self, order: OrderPointer, is_fully_filled: bool) {
-       let ord = order.lock().unwrap();
+    fn on_order_matched(&mut self, price: Price, quantity: Quantity, is_fully_filled: bool) {
         let action = if is_fully_filled {
             LevelDataAction::Remove
         } else {
             LevelDataAction::Match
         };
-        self.update_level_data(ord.get_price(), ord.get_initial_quantity(), action);
+        self.update_level_data(price, quantity, action);
     }
 
     fn can_match(&mut self, side: Side, price: Price) -> bool {
@@ -489,26 +493,46 @@ impl InnerOrderbook {
         }
     }
 
-    fn can_fully_fill(&self, side: Side, price: Price, quantity: Quantity) -> bool {
-        todo!()
-        // if !can_match(side, price){
-        //     return false
-        // }
+    fn can_fully_fill(&mut self, side: Side, price: Price, mut quantity: Quantity) -> bool {
 
-        // let threshold = 0
+        if !self.can_match(side, price){
+            return false
+        }
 
-        // if side == Side::Buy{
-        //     let (ask_price, _) = self.asks.iter().next()
-        //     threshold = ask_price
-        // }else{
-        //     let (bid_price, _) = self.bids.iter().next_back()
-        //     threshold = ask_price
-        // }
+        let threshold: Option<Price> = None;
 
-        
-        //loop to check level_price agaisnt threshold and quantity
-        
+        // Since bids or asks are guaranteed to be non-empty, unwrap directly.
+        let threshold = Some(
+            if side == Side::Buy {
+            *self.asks.iter().next().unwrap().0
+            } else {
+            *self.bids.iter().next_back().unwrap().0
+            }
+        );
 
+        for (level_price, level_data) in self.data.iter() {
+            if let Some(threshold_price) = threshold {
+                let outside_bounds = match side {
+                    Side::Buy => threshold_price > *level_price,
+                    Side::Sell => threshold_price < *level_price,
+                };
+                if outside_bounds {
+                    continue;
+                }
+            }
+
+            if (side == Side::Buy && *level_price > price) || (side == Side::Sell && *level_price < price){
+                continue;
+            }
+
+            if quantity <= level_data.quantity{
+                return true
+            }
+
+            quantity -= level_data.quantity
+
+        }
+        return false
     }
 
     fn remove_order_from_book(&mut self, order_id: OrderId, price: Price, side: Side) {
@@ -528,88 +552,91 @@ impl InnerOrderbook {
     }
 
     fn match_orders(&mut self) -> Trades {
-    let mut trades = Vec::with_capacity(self.orders.len());
+        let mut trades = Vec::with_capacity(self.orders.len());
 
-    loop {
-        if self.bids.is_empty() || self.asks.is_empty() {
-            break;
-        }
-
-        let (bid_price, bids) = match self.bids.iter_mut().next_back() {
-            Some((p, b)) => (*p, b),
-            None => break,
-        };
-        let (ask_price, asks) = match self.asks.iter_mut().next() {
-            Some((p, a)) => (*p, a),
-            None => break,
-        };
-
-        if bid_price < ask_price {
-            break;
-        }
-
-        let bid_order_ptr = bids.get(0).cloned();
-        let ask_order_ptr = asks.get(0).cloned();
-
-        let (bid_order_ptr, ask_order_ptr) = match (bid_order_ptr, ask_order_ptr) {
-            (Some(b), Some(a)) => (b, a),
-            _ => break,
-        };
-
-        let (bid_filled, ask_filled, bid_id, ask_id, trade_quantity, final_bid_price, final_ask_price, bid_type, ask_type);
-        {
-            let mut bid = bid_order_ptr.lock().unwrap();
-            let mut ask = ask_order_ptr.lock().unwrap();
-
-            trade_quantity = bid.get_remaining_quantity().min(ask.get_remaining_quantity());
-
-            // If nothing to match, break or handle F&K
-            if trade_quantity == 0 {
+        loop {
+            if self.bids.is_empty() || self.asks.is_empty() {
                 break;
             }
 
-            bid.fill(trade_quantity).ok();
-            ask.fill(trade_quantity).ok();
+            let (bid_price, bids) = match self.bids.iter_mut().next_back() {
+                Some((p, b)) => (*p, b),
+                None => break,
+            };
+            let (ask_price, asks) = match self.asks.iter_mut().next() {
+                Some((p, a)) => (*p, a),
+                None => break,
+            };
 
-            bid_filled = bid.is_filled();
-            ask_filled = ask.is_filled();
-            bid_id = bid.get_order_id();
-            ask_id = ask.get_order_id();
-            final_bid_price = bid.get_price();
-            final_ask_price = ask.get_price();
-            bid_type = bid.get_order_type();
-            ask_type = ask.get_order_type();
+            if bid_price < ask_price {
+                break;
+            }
+
+            let bid_order_ptr = bids.get(0).cloned();
+            let ask_order_ptr = asks.get(0).cloned();
+
+            let (bid_order_ptr, ask_order_ptr) = match (bid_order_ptr, ask_order_ptr) {
+                (Some(b), Some(a)) => (b, a),
+                _ => break,
+            };
+
+            let (bid_filled, ask_filled, bid_id, ask_id, trade_quantity, final_bid_price, final_ask_price, bid_type, ask_type);
+            {
+                let mut bid = bid_order_ptr.lock().unwrap();
+                let mut ask = ask_order_ptr.lock().unwrap();
+
+                trade_quantity = bid.get_remaining_quantity().min(ask.get_remaining_quantity());
+
+                // If nothing to match, break or handle F&K
+                if trade_quantity == 0 {
+                    break;
+                }
+
+                bid.fill(trade_quantity).ok();
+                ask.fill(trade_quantity).ok();
+
+                bid_filled = bid.is_filled();
+                ask_filled = ask.is_filled();
+
+                bid_id = bid.get_order_id();
+                ask_id = ask.get_order_id();
+
+                final_bid_price = bid.get_price();
+                final_ask_price = ask.get_price();
+
+                bid_type = bid.get_order_type();
+                ask_type = ask.get_order_type();
+            }
+
+            trades.push(Trade::new(
+                TradeInfo { order_id: bid_id, price: final_bid_price, quantity: trade_quantity },
+                TradeInfo { order_id: ask_id, price: final_ask_price, quantity: trade_quantity },
+            ));
+
+            self.on_order_matched(final_bid_price, trade_quantity, bid_filled);
+            self.on_order_matched(final_ask_price, trade_quantity, ask_filled);
+
+            // Fully filled orders
+            if bid_filled {
+                self.remove_order_from_book(bid_id, final_bid_price, Side::Buy);
+            }
+
+            if ask_filled {
+                self.remove_order_from_book(ask_id, final_ask_price, Side::Sell);
+            }
+
+            // Remove partially filled F&K orders (should not persist)
+            if !bid_filled && bid_type == OrderType::FillAndKill {
+                self.remove_order_from_book(bid_id, final_bid_price, Side::Buy);
+            }
+
+            if !ask_filled && ask_type == OrderType::FillAndKill {
+                self.remove_order_from_book(ask_id, final_ask_price, Side::Sell);
+            }
         }
 
-        trades.push(Trade::new(
-            TradeInfo { order_id: bid_id, price: final_bid_price, quantity: trade_quantity },
-            TradeInfo { order_id: ask_id, price: final_ask_price, quantity: trade_quantity },
-        ));
-
-        self.on_order_matched(bid_order_ptr.clone(), bid_filled);
-        self.on_order_matched(ask_order_ptr.clone(), ask_filled);
-
-        // Fully filled orders
-        if bid_filled {
-            self.remove_order_from_book(bid_id, final_bid_price, Side::Buy);
-        }
-
-        if ask_filled {
-            self.remove_order_from_book(ask_id, final_ask_price, Side::Sell);
-        }
-
-        // Remove partially filled F&K orders (should not persist)
-        if !bid_filled && bid_type == OrderType::FillAndKill {
-            self.remove_order_from_book(bid_id, final_bid_price, Side::Buy);
-        }
-
-        if !ask_filled && ask_type == OrderType::FillAndKill {
-            self.remove_order_from_book(ask_id, final_ask_price, Side::Sell);
-        }
+        trades
     }
-
-    trades
-}
 
 
     
@@ -788,8 +815,26 @@ mod test {
         orderbook.add_order(Order::new(OrderType::FillAndKill, 4, Side::Buy, 100, 10));
 
         assert_eq!(orderbook.size(), 1);
-        
+    }
 
+    #[test]
+    fn test_orderbook_will_cancel_fok(){
+        let mut orderbook = Orderbook::new(BTreeMap::new(), BTreeMap::new());
+
+        // Add a sell order with quantity less than the FOK buy order
+        orderbook.add_order(Order::new(OrderType::GoodTillCancel, 1, Side::Sell, 100, 5));
+
+        // Try to add a FOK buy order that requires more quantity than available (should not be added)
+        orderbook.add_order(Order::new(OrderType::FillOrKill, 2, Side::Buy, 100, 10));
+        assert_eq!(orderbook.size(), 1);
+
+        // Now add enough sell quantity to fill the FOK order
+        orderbook.add_order(Order::new(OrderType::GoodTillCancel, 3, Side::Sell, 100, 10));
+
+        // Add a FOK buy order that can be fully filled (should match and remove both)
+        orderbook.add_order(Order::new(OrderType::FillOrKill, 4, Side::Buy, 100, 10));
+        println!("{:#?}", orderbook);
+        assert_eq!(orderbook.size(), 1);
     }
 
     #[test]
