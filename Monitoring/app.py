@@ -3,6 +3,7 @@ from datetime import datetime
 from nicegui import ui
 import random
 from scripts import mock_data, leos_func
+import math
 
 logger = logging.getLogger()
 
@@ -55,5 +56,28 @@ def page():
     # ui.context.client.on_disconnect(lambda: logger.removeHandler(sys_hdl))
 
     ui.timer(random.randint(1, 2), lambda: leos_func(random.randint(1, 5), update_log=update_log, matches_log=match_log, systems_log=sys_log))
+def update_line_plot(chart):
+    now = datetime.now()
+    x = now.timestamp()
+    y1 = math.sin(x)
+    y2 = math.cos(x)
+    depth_chart.push([now], [[y1], [y2]], y_limits=(-1.5, 1.5))
+    
+@ui.page("/analytics")
+def analytics():
+    ui.label("This is the analytics page.")
+    depth_chart = ui.line_plot(n=2, limit=20, num="ORDERBOOK", label="ORDERBOOK").with_legend(['bids', 'asks'], loc='upper right', ncol=2)
+                                                                                     
+    # depth_chart.title = 'Depth Chart'
+    depth_chart.title = 'Depth Chart'
 
+    
+    
+
+    
+    
+    # ui.add_card(depth_chart) # Make sure the plot is actually added to the UI
+
+
+     
 ui.run()
