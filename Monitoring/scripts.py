@@ -28,7 +28,7 @@ async def leos_func(num_of_logs, update_log, matches_log, systems_log):
             matches_log.push(random_log_event)
         else:
             update_log.push(random_log_event)
-
+        
     
 
 # while True: #connected to server
