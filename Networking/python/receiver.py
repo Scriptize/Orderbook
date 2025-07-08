@@ -53,36 +53,32 @@ def main():
                 match_buffer_size = struct.calcsize(match_format_str)
                 price_update_buffer_size = struct.calcsize(price_update_format_str)
 
-                buffer_size = max(log_buffer_size, match_buffer_size, price_update_buffer_size)
+                # buffer_size = max(log_buffer_size, match_buffer_size, price_update_buffer_size)
 
                 # unpacks a structured buffer
-                buffer = conn.recv(buffer_size)
-                # could it recieve more than 1 "buffer" since we may be recieving more than the size of 1 buffer? 
-                if not buffer: break
+                type_buffer = conn.recv(1)
+                if not type_buffer: break
 
-                log_type_int = buffer.unpack("!B", buffer)
-                # the data variable is a collection of elements
-                if log_type_int == 1:
-                    data = struct.unpack_from("!3s", buffer, 1) # offset packing by 1 to not unpack the identifier type
-                    
-                    # data = (log_type_str, level, message)
-                    print(f"Log type: {data[0]}, level: {data[1]}, message: {data[2]}")
-                    # reads the data (standard output, print, etc.)
-
-                elif log_type_int == 2:
-                    data = struct.unpack_from("!ssisf", buffer, 1)
-                    
-                    # data = (log_type_str, side, quantity, symbol, price)
-                    print(f"Log type: {data[0]}, side: {data[1]}, quantity: {data[2]}, symbol: {data[3]}, price: {data[4]}")
-                    # reads the data (standard output, print, etc.)
-                elif log_type_int == 3:
-                    data = struct.unpack_from("!ssff", buffer, 1)
-
-                    # data = (log_type_str, symbol, old_price, new_price)
-                    print(f"Log type: {data[0]}, symbol: {data[1]}, old_price: {data[2]}, new_price: {data[3]}")
-                    # reads the data (standard output, print, etc.)
+                type_buffer.unpack("!B", type_buffer)
+                if type_buffer == "1":
+                    whole_buffer = conn.recv(log_buffer_size)
+                    data = struct.unpack(log_format_str, whole_buffer)
+                    # data = (1, log_type_str, level, message)
+                    print(f"Log type: {data[1]}, level: {data[2]}, message: {data[3]}")
+                elif type_buffer == "2":
+                    whole_buffer = conn.recv(match_buffer_size)
+                    data = struct.unpack(match_format_str, whole_buffer)
+                    # data = (2, log_type_str, side, quantity, symbol, price)
+                    print(f"Log type: {data[1]}, side: {data[2]}, quantity: {data[3]}, symbol: {data[4]}, price: {data[5]}")
+                elif type_buffer == "3":
+                    whole_buffer = conn.recv(price_update_buffer_size)
+                    data = struct.unpack(price_update_format_str, whole_buffer)
+                    # data = (3, log_type_str, symbol, old_price, new_price)
+                    print(f"Log type: {data[1]}, symbol: {data[2]}, old_price: {data[3]}, new_price: {data[4]}")
                 else:
                     print("Error: log type is invalid.")
+
+                # ts better work as expected darren..
 
 main()
 
