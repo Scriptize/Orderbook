@@ -1,86 +1,62 @@
 import socket
 import struct
-import random
-import math
+
+def handle_log(conn):
+    header = conn.recv(4)  # HH (2 bytes each) = 2+2 = 4 bytes
+    if len(header) < 4: return False
+    len_level, len_msg = struct.unpack("!HH", header)
+    payload = conn.recv(len_level + len_msg)
+    if len(payload) < len_level + len_msg: return False
+    level = payload[:len_level].decode()
+    message = payload[len_level:].decode()
+    print(f"[LOG] {level}: {message}")
+    return True
+
+def handle_match(conn):
+    header = conn.recv(12)  # HHIf = 2+2+4+4 = 12 bytes
+    if len(header) < 12: return False
+    len_side, len_symbol, quantity, price = struct.unpack("!HHIf", header)
+    payload = conn.recv(len_side + len_symbol)
+    if len(payload) < len_side + len_symbol: return False
+    side = payload[:len_side].decode()
+    symbol = payload[len_side:].decode()
+    print(f"[MATCH] {side} {quantity} {symbol} @ ${price:.2f}")
+    return True
+
+def handle_price_update(conn):
+    header = conn.recv(10)  # Hff = 2+4+4 = 10 bytes
+    if len(header) < 10: return False
+    len_symbol, old_price, new_price = struct.unpack("!Hff", header)
+    symbol = conn.recv(len_symbol).decode()
+    print(f"[PRICE] {symbol}: ${old_price:.2f} -> ${new_price:.2f}")
+    return True
 
 def main():
-    print("This will be our python reciever! (server)")
-
-    # format_char_size = { me when i dont know theres a calcsize()
-    #     "X": 0,
-    #     "c": 1,
-    #     "b": 1,
-    #     "B": 1,
-    #     "?": 1,
-    #     "h": 2,
-    #     "H": 2,
-    #     "i": 4,
-    #     "I": 4,
-    #     "l": 4,
-    #     "L": 4,
-    #     "q": 8,
-    #     "Q": 8,
-    #     "n": 0,
-    #     "N": 0,
-    #     "e": 2,
-    #     "f": 4,
-    #     "d": 8,
-    #     "s": 0,
-    #     "p": 0,
-    #     "P": 0
-    # }
-    
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        # creates/binds to a TCP stream
-        try:
-            s.bind(('localhost', 12345))
-        except socket.error:
-            print("Error: Cannot bind to a TCP stream.")
-        
-        s.listen(1) # 1 pending connections that the socket can queue
-        print("Server is listening...")
-
-        # accepts a TCP connection
+        s.bind(('localhost', 12345))
+        s.listen(1)
+        print("Server listening on port 12345...")
         conn, addr = s.accept()
         with conn:
-            print('Connected by', addr)
+            print(f"Connected by {addr}")
             while True:
-                log_format_str = "!B3s"
-                match_format_str = "!Bssisf"
-                price_update_format_str = "!Bssff"
+                msg_type = conn.recv(1)
+                if not msg_type:
+                    break
+                msg_type = struct.unpack("!B", msg_type)[0]
+                try:
+                    if msg_type == 1:
+                        if not handle_log(conn): break
+                    elif msg_type == 2:
+                        if not handle_match(conn): break
+                    elif msg_type == 3:
+                        if not handle_price_update(conn): break
+                    else:
+                        print("Unknown message type:", msg_type)
+                        break
+                except Exception as e:
+                    print("Error handling message:", e)
+                    break
 
-                log_buffer_size = struct.calcsize(log_format_str)
-                match_buffer_size = struct.calcsize(match_format_str)
-                price_update_buffer_size = struct.calcsize(price_update_format_str)
-
-                # buffer_size = max(log_buffer_size, match_buffer_size, price_update_buffer_size)
-
-                # unpacks a structured buffer
-                type_buffer = conn.recv(1)
-                if not type_buffer: break
-
-                type_buffer.unpack("!B", type_buffer)
-                if type_buffer == "1":
-                    whole_buffer = conn.recv(log_buffer_size)
-                    data = struct.unpack(log_format_str, whole_buffer)
-                    # data = (1, log_type_str, level, message)
-                    print(f"Log type: {data[1]}, level: {data[2]}, message: {data[3]}")
-                elif type_buffer == "2":
-                    whole_buffer = conn.recv(match_buffer_size)
-                    data = struct.unpack(match_format_str, whole_buffer)
-                    # data = (2, log_type_str, side, quantity, symbol, price)
-                    print(f"Log type: {data[1]}, side: {data[2]}, quantity: {data[3]}, symbol: {data[4]}, price: {data[5]}")
-                elif type_buffer == "3":
-                    whole_buffer = conn.recv(price_update_buffer_size)
-                    data = struct.unpack(price_update_format_str, whole_buffer)
-                    # data = (3, log_type_str, symbol, old_price, new_price)
-                    print(f"Log type: {data[1]}, symbol: {data[2]}, old_price: {data[3]}, new_price: {data[4]}")
-                else:
-                    print("Error: log type is invalid.")
-
-                # ts better work as expected darren..
-
-main()
-
-
-
+if __name__ == "__main__":
+    main()

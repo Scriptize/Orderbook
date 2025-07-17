@@ -1,8 +1,8 @@
 import socket
 import struct
 import random
+import time
 
-# hard coded the mock_data for testing
 mock_data = [
  {"type":"price_update","symbol":"BTC/USD","old_price":67203.00,"new_price":67210.50},
  {"type":"price_update","symbol":"ETH/USD","old_price":3212.45,"new_price":3217.10},
@@ -15,70 +15,50 @@ mock_data = [
  {"type":"log","level":"INFO","message":"Trade executed: Order#14352 matched with Order#14349"}
 ]
 
-num_to_log_types = {
-    1: "log",
-    2: "match",
-    3: "price_update"
-}
+log_type_to_num = {"log": 1, "match": 2, "price_update": 3}
 
-log_type_to_num = {
-    "log": 1,
-    "match": 2,
-    "price_update": 3
-}
+def send_log(sock, data):
+    level = data["level"].encode("utf-8")
+    message = data["message"].encode("utf-8")
+    header = struct.pack("!BHH", log_type_to_num["log"], len(level), len(message))
+    sock.sendall(header + level + message)
+
+def send_match(sock, data):
+    side = data["side"].encode("utf-8")
+    symbol = data["symbol"].encode("utf-8")
+    quantity = data["quantity"]
+    price = data["price"]
+    header = struct.pack("!BHHIf", log_type_to_num["match"], len(side), len(symbol), quantity, price)
+    sock.sendall(header + side + symbol)
+
+def send_price_update(sock, data):
+    symbol = data["symbol"].encode("utf-8")
+    old_price = data["old_price"]
+    new_price = data["new_price"]
+    header = struct.pack("!B Hff", log_type_to_num["price_update"], len(symbol), old_price, new_price)
+    sock.sendall(header + symbol)
 
 def main():
-    print("This will be our python sender! (client)")
-    
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        # connects to a TCP stream
         try:
             s.connect(('localhost', 12345))
         except socket.error:
-            print("Error: Cannot connect to a TCP stream.")
-        
-        # TODO: need to work on the boolean condition for the while loop
-        while True:
-            # generates the log data
-            random_log_event = random.choice(mock_data)
+            print("Error: Cannot connect to server.")
+            return
 
-            # Pack data using struct (network byte order: '!' + 'H' (ushort), 'f' (float), '?' (bool))
-            # packs it into a buffer
-            if random_log_event["type"] == "log":
-                log_type = "log" # type is string
-                level = random_log_event["level"] # type is a string
-                message = random_log_event["message"] # type is a string
-                try:
-                    buffer = struct.pack('!B3s', 1, log_type, level, message)
-                except struct.error:
-                    print("Error: Cannot pack data into buffer.")
-
-            
-            if random_log_event["type"] == "match":
-                log_type = "match" # type is string
-                side = random_log_event["side"] # type is string
-                quantity = random_log_event["quantity"] # type is int?
-                symbol = random_log_event["symbol"] # type is string
-                price = random_log_event["price"] # type is float
-                try:
-                    buffer = struct.pack('!Bssisf', 2, log_type, side, quantity, symbol, price)
-                except struct.error:
-                    print("Error: Cannot pack data into buffer.")
-
-            if random_log_event["type"] == "price_update":
-                log_type = "price_update" # type is string
-                symbol = random_log_event["symbol"] # type is string
-                old_price = random_log_event["old_price"] # type is float
-                new_price = random_log_event["new_price"] # type is float
-                try:
-                    buffer = struct.pack('!Bssff', 3, log_type, symbol, old_price, new_price)
-                except struct.error:
-                    print("Error: Cannot pack data into buffer.")
-
-            # sends it over a TCP stream
+        for _ in range(100):
+            data = random.choice(mock_data)
             try:
-                s.sendall(buffer)
-            except socket.error:
-                print("Error: Cannot send buffer.")
+                if data["type"] == "log":
+                    send_log(s, data)
+                elif data["type"] == "match":
+                    send_match(s, data)
+                elif data["type"] == "price_update":
+                    send_price_update(s, data)
+                time.sleep(0.1)
+            except Exception as e:
+                print("Send failed:", e)
+                break
 
-main()
+if __name__ == "__main__":
+    main()
