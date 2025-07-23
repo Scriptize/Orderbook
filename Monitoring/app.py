@@ -70,7 +70,7 @@ def analytics():
                                                                                      
     # depth_chart.title = 'Depth Chart'
     depth_chart.title = 'Depth Chart'
-
+#To do (figure out how to add titles to line charts)
     
     
 
