@@ -41,7 +41,7 @@ def send_price_update(sock, data):
 def main():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         try:
-            s.connect(('localhost', 12345))
+            s.connect(('localhost', 12345)) # 12345 -> 9001
         except socket.error:
             print("Error: Cannot connect to server.")
             return

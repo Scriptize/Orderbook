@@ -1,62 +1,81 @@
-import socket
+import asyncio
 import struct
+from nicegui import ui
 
-def handle_log(conn):
-    header = conn.recv(4)  # HH (2 bytes each) = 2+2 = 4 bytes
-    if len(header) < 4: return False
+# Create a column to display log/match messages
+with ui.column().classes('w-full') as log_column:
+    ui.label('TCP Server Logs:')
+
+# Label to show price updates
+match_label = ui.label('Price updates will show here').classes('text-xl')
+
+# UI label for server status
+ui.label('NiceGUI TCP Server is running...')
+
+# Helper functions to append to the UI
+def append_log(text: str):
+    with log_column:
+        ui.label(text)
+
+# TCP message handlers
+async def handle_log(reader):
+    header = await reader.readexactly(4)
     len_level, len_msg = struct.unpack("!HH", header)
-    payload = conn.recv(len_level + len_msg)
-    if len(payload) < len_level + len_msg: return False
+    payload = await reader.readexactly(len_level + len_msg)
     level = payload[:len_level].decode()
     message = payload[len_level:].decode()
-    print(f"[LOG] {level}: {message}")
-    return True
+    append_log(f"[LOG] {level}: {message}")
 
-def handle_match(conn):
-    header = conn.recv(12)  # HHIf = 2+2+4+4 = 12 bytes
-    if len(header) < 12: return False
+async def handle_match(reader):
+    header = await reader.readexactly(12)
     len_side, len_symbol, quantity, price = struct.unpack("!HHIf", header)
-    payload = conn.recv(len_side + len_symbol)
-    if len(payload) < len_side + len_symbol: return False
+    payload = await reader.readexactly(len_side + len_symbol)
     side = payload[:len_side].decode()
     symbol = payload[len_side:].decode()
-    print(f"[MATCH] {side} {quantity} {symbol} @ ${price:.2f}")
-    return True
+    append_log(f"[MATCH] {side} {quantity} {symbol} @ ${price:.2f}")
 
-def handle_price_update(conn):
-    header = conn.recv(10)  # Hff = 2+4+4 = 10 bytes
-    if len(header) < 10: return False
+async def handle_price_update(reader):
+    header = await reader.readexactly(10)
     len_symbol, old_price, new_price = struct.unpack("!Hff", header)
-    symbol = conn.recv(len_symbol).decode()
-    print(f"[PRICE] {symbol}: ${old_price:.2f} -> ${new_price:.2f}")
-    return True
+    symbol = (await reader.readexactly(len_symbol)).decode()
+    match_label.set_text(f"[PRICE] {symbol}: ${old_price:.2f} -> ${new_price:.2f}")
 
-def main():
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(('localhost', 12345))
-        s.listen(1)
-        print("Server listening on port 12345...")
-        conn, addr = s.accept()
-        with conn:
-            print(f"Connected by {addr}")
-            while True:
-                msg_type = conn.recv(1)
-                if not msg_type:
-                    break
-                msg_type = struct.unpack("!B", msg_type)[0]
-                try:
-                    if msg_type == 1:
-                        if not handle_log(conn): break
-                    elif msg_type == 2:
-                        if not handle_match(conn): break
-                    elif msg_type == 3:
-                        if not handle_price_update(conn): break
-                    else:
-                        print("Unknown message type:", msg_type)
-                        break
-                except Exception as e:
-                    print("Error handling message:", e)
-                    break
+# TCP connection handler
+async def handle_client(reader, writer):
+    addr = writer.get_extra_info('peername')
+    append_log(f"[STATUS] Connected by {addr}")
+    try:
+        while True:
+            msg_type_raw = await reader.read(1)
+            if not msg_type_raw:
+                break
+            msg_type = struct.unpack("!B", msg_type_raw)[0]
 
-if __name__ == "__main__":
-    main()
+            if msg_type == 1:
+                await handle_log(reader)
+            elif msg_type == 2:
+                await handle_match(reader)
+            elif msg_type == 3:
+                await handle_price_update(reader)
+            else:
+                append_log(f"[ERROR] Unknown message type: {msg_type}")
+                break
+    except asyncio.IncompleteReadError:
+        append_log(f"[STATUS] Connection from {addr} closed")
+    except Exception as e:
+        append_log(f"[ERROR] {e}")
+    finally:
+        writer.close()
+        await writer.wait_closed()
+
+# Async TCP server startup
+async def start_tcp_server():
+    server = await asyncio.start_server(handle_client, 'localhost', 12345)
+    append_log("[STATUS] TCP server started on port 12345")
+    asyncio.create_task(server.serve_forever())
+
+# Use timer to start server after NiceGUI boots
+ui.timer(1.0, lambda: asyncio.create_task(start_tcp_server()), once=True)
+
+# Run the app
+ui.run()
