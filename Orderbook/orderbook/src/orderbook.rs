@@ -248,7 +248,7 @@ struct OrderEntry {
 #[derive(Debug)]
 struct LevelData{
     pub quantity: Quantity,
-    pub count: Quantity
+    pub count: Quantity,
 }
 
 
@@ -453,15 +453,15 @@ impl InnerOrderbook {
 
         match action {
             LevelDataAction::Remove => {
-                data.count = data.count.saturating_sub(1);
-                data.quantity = data.quantity.saturating_sub(quantity);
+                data.count -= 1;
+                data.quantity -= quantity;
             },
             LevelDataAction::Add => {
                 data.count += 1;
                 data.quantity += quantity;
             },
             LevelDataAction::Match => {
-                data.quantity = data.quantity.saturating_sub(quantity);
+                data.quantity -= quantity;
             },
         }
 
@@ -475,7 +475,7 @@ impl InnerOrderbook {
     }
     fn on_order_added(&mut self, order: OrderPointer) {
         let ord = order.lock().unwrap();
-        self.update_level_data(ord.get_price(), ord.get_initial_quantity(), LevelDataAction::Match)
+        self.update_level_data(ord.get_price(), ord.get_initial_quantity(), LevelDataAction::Add)
     }
     fn on_order_matched(&mut self, price: Price, quantity: Quantity, is_fully_filled: bool) {
         let action = if is_fully_filled {
