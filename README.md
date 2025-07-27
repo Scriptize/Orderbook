@@ -13,17 +13,13 @@
 
 ## ⚙️ Features:
 ### Critical Components:
-* Venues *
+* Venues 
 * Gateways
-* Book Builder (OrderBook)
-* Strategy (Matching Engine)
+* Book Builder (Limit Order Book)
 * Order Manager (OMS)
 ###### (Venues aren't "part" of the trading system, but rather "exchanges" that the gateways interface with) 
 
 ### Non-critical Components:
-* Command and control (Web app)
-### Additional Services (Not necessary)
-* Position server
 * Logging system
 * Viewers (read-only UI view)
 
