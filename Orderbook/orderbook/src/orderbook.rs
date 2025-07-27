@@ -248,7 +248,7 @@ struct OrderEntry {
 #[derive(Debug)]
 struct LevelData{
     pub quantity: Quantity,
-    pub count: Quantity
+    pub count: Quantity,
 }
 
 
@@ -453,15 +453,15 @@ impl InnerOrderbook {
 
         match action {
             LevelDataAction::Remove => {
-                data.count = data.count.saturating_sub(1);
-                data.quantity = data.quantity.saturating_sub(quantity);
+                data.count -= 1;
+                data.quantity -= quantity;
             },
             LevelDataAction::Add => {
                 data.count += 1;
                 data.quantity += quantity;
             },
             LevelDataAction::Match => {
-                data.quantity = data.quantity.saturating_sub(quantity);
+                data.quantity -= quantity;
             },
         }
 
@@ -475,7 +475,7 @@ impl InnerOrderbook {
     }
     fn on_order_added(&mut self, order: OrderPointer) {
         let ord = order.lock().unwrap();
-        self.update_level_data(ord.get_price(), ord.get_initial_quantity(), LevelDataAction::Match)
+        self.update_level_data(ord.get_price(), ord.get_initial_quantity(), LevelDataAction::Add)
     }
     fn on_order_matched(&mut self, price: Price, quantity: Quantity, is_fully_filled: bool) {
         let action = if is_fully_filled {
@@ -536,19 +536,29 @@ impl InnerOrderbook {
     }
 
     fn remove_order_from_book(&mut self, order_id: OrderId, price: Price, side: Side) {
-        let book = match side {
-            Side::Buy => &mut self.bids,
-            Side::Sell => &mut self.asks,
-        };
+        // Remove from orders map and get the entry (contains location)
+        if let Some(entry) = self.orders.remove(&order_id) {
+            let book = match side {
+                Side::Buy => &mut self.bids,
+                Side::Sell => &mut self.asks,
+            };
 
-        if let Some(queue) = book.get_mut(&price) {
-            queue.retain(|o| o.lock().unwrap().get_order_id() != order_id);
-            if queue.is_empty() {
-                book.remove(&price);
+            if let Some(queue) = book.get_mut(&price) {
+                let idx = entry.location;
+                let last_idx = queue.len() - 1;
+                queue.swap_remove(idx);
+                // If we swapped with another order, update its location in orders map
+                if idx < queue.len() {
+                    let swapped_order_id = queue[idx].lock().unwrap().get_order_id();
+                    if let Some(swapped_entry) = self.orders.get_mut(&swapped_order_id) {
+                        swapped_entry.location = idx;
+                    }
+                }
+                if queue.is_empty() {
+                    book.remove(&price);
+                }
             }
         }
-
-        self.orders.remove(&order_id);
     }
 
     fn match_orders(&mut self) -> Trades {
