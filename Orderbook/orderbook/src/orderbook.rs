@@ -9,6 +9,8 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH}
 };
 use chrono::{Local, NaiveDateTime, TimeDelta, DateTime, Timelike};
+use log::{info, trace, warn, debug, error};
+
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum OrderType {
@@ -149,9 +151,7 @@ impl Order {
             self.filled_quantity += quantity;
             if self.remaining_quantity == 0 {
                 self.filled = true;
-            }
-            println!("Filling {} by {}", self.order_id, quantity);
-            println!("Before: rem={}, filled={}", self.remaining_quantity, self.filled_quantity);   
+            }   
             Ok(())
         } else {
             Err("Order cannot be filled for more than it's remaining quantity.".to_string())
@@ -351,6 +351,7 @@ impl InnerOrderbook {
         {
             let mut ord = order.lock().unwrap();
             if self.orders.contains_key(&ord.get_order_id()){
+                warn!("InnerOrderbook: Order with id {} already exists, skipping add.", ord.get_order_id());
                 return vec![];
             }
 
@@ -367,6 +368,7 @@ impl InnerOrderbook {
                     _ => return vec![],
                 };
                 if result.is_err() {
+                    warn!("InnerOrderbook: Failed to convert market order to GTC: {:?}", result);
                     return vec![];
                 }
             }
@@ -375,12 +377,15 @@ impl InnerOrderbook {
             let side = ord.get_side();
             let price = ord.get_price();
             let initial_quantity = ord.get_initial_quantity();
+            let order_id = ord.get_order_id();
 
             if order_type == OrderType::FillAndKill && !self.can_match(side, price) {
+                info!("F&K Order#{} cannot match, not adding.", order_id);
                 return vec![];
             }
 
             if order_type == OrderType::FillOrKill && !self.can_fully_fill(side, price, initial_quantity) {
+                info!("FOK Order#{} cannot be fully filled, not adding.", order_id);
                 return vec![];
             }
 
@@ -394,12 +399,20 @@ impl InnerOrderbook {
                 orders.push(order.clone());
                 index = orders.len() - 1;
             }
-
+            let str_side = match side{
+                Side::Buy => "BUY",
+                Side::Sell => "SELL"
+            };
             let order_id = ord.get_order_id();
+            info!("Added {}#{} for {}/{} @ {} ({:?})", str_side, order_id, initial_quantity, initial_quantity, price, order_type);
             self.orders.insert(order_id, OrderEntry {order: order.clone(), location: index, side, price,});
         }
         self.on_order_added(order.clone());
-        self.match_orders()
+        let trades = self.match_orders();
+        if !trades.is_empty() {
+            // info!("InnerOrderbook: Trades occurred after add: {:?}", trades);
+        }
+        trades
     }
 
 
@@ -431,8 +444,11 @@ impl InnerOrderbook {
                     }
                 }
             }
-
+            
+            info!("Cancelled Order#{} at price {} side {:?}", order_id, price, side);
             self.on_order_cancelled(order.clone());
+        } else {
+            warn!("InnerOrderbook: Tried to cancel non-existent order_id {}", order_id);
         }
     }
 
@@ -442,11 +458,17 @@ impl InnerOrderbook {
             .map(|entry| entry.order.lock().unwrap().get_order_type());
 
         if order_type.is_none() {
+            warn!("InnerOrderbook: Tried to modify non-existent order_id {}", order.get_order_id());
             return vec![];
         }
 
+        info!("InnerOrderbook: Modifying order_id {} to price {} qty {} side {:?}", order.get_order_id(), order.get_price(), order.get_quantity(), order.get_side());
         self.cancel_order(order.get_order_id());
-        self.add_order(order.to_order_pointer(order_type.unwrap()))
+        let trades = self.add_order(order.to_order_pointer(order_type.unwrap()));
+        if !trades.is_empty() {
+            info!("InnerOrderbook: Trades occurred after modify: {:?}", trades);
+        }
+        trades
     }
     fn update_level_data(&mut self, price: Price, quantity: Quantity, action: LevelDataAction) {
         let data = self.data.entry(price).or_insert(LevelData { quantity: 0, count: 0 });
@@ -483,6 +505,7 @@ impl InnerOrderbook {
         } else {
             LevelDataAction::Match
         };
+        debug!("Order matched @ price {} qty {} fully_filled {}", price, quantity, is_fully_filled);
         self.update_level_data(price, quantity, action);
     }
 
@@ -558,6 +581,7 @@ impl InnerOrderbook {
                     book.remove(&price);
                 }
             }
+            trace!("Removed Order#{} from book at price {} side {:?}", order_id, price, side);
         }
     }
 
@@ -602,6 +626,8 @@ impl InnerOrderbook {
                     break;
                 }
 
+                info!("Matching bid order_id {} and ask order_id {} for quantity {}", bid.get_order_id(), ask.get_order_id(), trade_quantity);
+
                 bid.fill(trade_quantity).ok();
                 ask.fill(trade_quantity).ok();
 
@@ -637,14 +663,15 @@ impl InnerOrderbook {
 
             // Remove partially filled F&K orders (should not persist)
             if !bid_filled && bid_type == OrderType::FillAndKill {
+                info!("Removing partially filled F&K bid order_id {}", bid_id);
                 self.remove_order_from_book(bid_id, final_bid_price, Side::Buy);
             }
 
             if !ask_filled && ask_type == OrderType::FillAndKill {
+                info!("Removing partially filled F&K ask order_id {}", ask_id);
                 self.remove_order_from_book(ask_id, final_ask_price, Side::Sell);
             }
         }
-
         trades
     }
 
@@ -653,42 +680,42 @@ impl InnerOrderbook {
 
     fn prune_gfd_orders(&mut self, test_mode: bool) {
         let end_hour = 16;
-        println!("end_hour: {}", end_hour);
+        info!("end_hour: {}", end_hour);
 
         loop {
-            println!("Started Loop!");
+            info!("Started Loop!");
             let now = SystemTime::now();
             let now_duration = now.duration_since(UNIX_EPOCH).unwrap();
-            println!("now_duration: {:?}", now_duration);
+            debug!("now_duration: {:?}", now_duration);
             let now_secs = now_duration.as_secs() as i64;
-            println!("now_secs: {}", now_secs);
+            debug!("now_secs: {}", now_secs);
             
             let now_parts = DateTime::from_timestamp(now_secs, 0).unwrap();
-            println!("now_parts: {:?}", now_parts);
+            debug!("now_parts: {:?}", now_parts);
             let mut date = now_parts.date_naive();
-            println!("date: {}", date);
+            debug!("date: {}", date);
             let hour = now_parts.hour();
-            println!("hour: {}", hour);
+            debug!("hour: {}", hour);
 
-            println!("Comparing hours!");
-            println!("Current hour is {}, end hour is {}", hour, end_hour);
+            debug!("Comparing hours!");
+            debug!("Current hour is {}, end hour is {}", hour, end_hour);
             if hour >= end_hour {
                 date = date.succ_opt().unwrap(); // move to next day
-                println!("Moved to next day, new date: {}", date);
+                debug!("Moved to next day, new date: {}", date);
             }
 
             let next_cutoff = date.and_hms_opt(end_hour, 0, 0).unwrap();
-            println!("next_cutoff: {}", next_cutoff);
+            debug!("next_cutoff: {}", next_cutoff);
             let cutoff_ts = UNIX_EPOCH + Duration::from_secs(next_cutoff.and_utc().timestamp() as u64);
-            println!("cutoff_ts: {:?}", cutoff_ts);
+            debug!("cutoff_ts: {:?}", cutoff_ts);
             let now_system_time = SystemTime::now();
-            println!("now_system_time: {:?}", now_system_time);
+            debug!("now_system_time: {:?}", now_system_time);
             
-            println!("Finding wait duration");
+            debug!("Finding wait duration");
             let wait_duration = cutoff_ts
                 .duration_since(now_system_time)
                 .unwrap_or(Duration::from_secs(0)) + Duration::from_millis(100);
-            println!("wait_duration: {:?}", wait_duration);
+            debug!("wait_duration: {:?}", wait_duration);
 
             // Use a dummy mutex for waiting on the condition variable.
             let dummy_mutex = Mutex::new(());
@@ -697,49 +724,49 @@ impl InnerOrderbook {
                 .wait_timeout(guard, wait_duration)
                 .unwrap();
             
-            println!("result.timed_out(): {}", result.timed_out());
-            println!("self.shutdown: {}", self.shutdown.load(Ordering::Acquire));
+            debug!("result.timed_out(): {}", result.timed_out());
+            debug!("self.shutdown: {}", self.shutdown.load(Ordering::Acquire));
             
-            println!("DEBUG: About to check shutdown condition");
+            debug!("DEBUG: About to check shutdown condition");
             if self.shutdown.load(Ordering::Acquire) {
-                println!("Shutdown requested, exiting prune_gfd_orders.");
+                info!("Shutdown requested, exiting prune_gfd_orders.");
                 return;
             }
 
-            println!("DEBUG: About to check timeout condition");
+            debug!("DEBUG: About to check timeout condition");
             if !result.timed_out() {
-                println!("Woke up early (not timed out), skipping pruning.");
+                info!("Woke up early (not timed out), skipping pruning.");
                 continue;
             }
 
-            println!("DEBUG: About to start pruning logic");
+            debug!("DEBUG: About to start pruning logic");
             
             // Pruning logic
-            println!("Pruning Orders!");
+            info!("Pruning Orders!");
             let mut order_ids = vec![];
 
-            println!("DEBUG: About to iterate over orders");
+            debug!("DEBUG: About to iterate over orders");
             for (order_id, entry) in &self.orders {
-                println!("DEBUG: Checking order {}", order_id);
+                debug!("DEBUG: Checking order {}", order_id);
                 let order = entry.order.lock().unwrap();
-                println!("DEBUG: Order type: {:?}", order.get_order_type());
+                debug!("DEBUG: Order type: {:?}", order.get_order_type());
                 if order.get_order_type() == OrderType::GoodForDay {
-                    println!("DEBUG: Adding GFD order {} to cancellation list", order_id);
+                    info!("DEBUG: Adding GFD order {} to cancellation list", order_id);
                     order_ids.push(*order_id);
                 }
             }
             
-            println!("Found {} GFD orders to cancel", order_ids.len());
+            info!("Found {} GFD orders to cancel", order_ids.len());
 
             for id in order_ids {
-                println!("Canceling order with id: {}", id);
+                info!("Canceling order with id: {}", id);
                 self.cancel_order(id);
             }
             
-            println!("Orders left: {}", self.orders.len());
+            info!("Orders left: {}", self.orders.len());
 
             if test_mode{
-                println!("Finished pruning! test mode on");
+                info!("Finished pruning! test mode on");
                 break;
             }
         }
