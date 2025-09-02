@@ -457,6 +457,7 @@ pub struct Orderbook {
     /// Shared, mutex-protected inner order book state (private to enforce encapsulation).
     inner: Arc<Mutex<InnerOrderbook>>,
     orders_prune_thread: Option<JoinHandle<()>>,
+    shutdown_mutex: Arc<Mutex<()>>,
     shutdown_condition_variable: Arc<Condvar>,
     shutdown: AtomicBool,
 }
@@ -475,6 +476,7 @@ impl Orderbook {
         Self {
             inner: Arc::new(Mutex::new(inner)),
             orders_prune_thread: None,
+            shutdown_mutex: Arc::new(Mutex::new(())),
             shutdown_condition_variable: Condvar::new().into(),
             shutdown: AtomicBool::new(false)
         }
@@ -495,8 +497,12 @@ impl Orderbook {
     /// - Locking uses `Mutex::lock().unwrap()`, which will **panic** if the mutex is poisoned.
     pub fn build(bids: BTreeMap<Price, OrderPointers>, asks: BTreeMap<Price, OrderPointers>, test_mode: bool) -> Self {
         let inner = Arc::new(Mutex::new(InnerOrderbook::new(bids, asks)));
+        
         let shutdown_condition_variable = Arc::new(Condvar::new());
+        let shutdown_mutex = Arc::new(Mutex::new(()));
         let shutdown = Arc::new(AtomicBool::new(false));
+
+        let mutex_clone = Arc::clone(&shutdown_mutex);
         let inner_clone = Arc::clone(&inner);
         let shutdown_clone = Arc::clone(&shutdown);
         let shutdown_condition_variable_clone = Arc::clone(&shutdown_condition_variable);
@@ -505,6 +511,7 @@ impl Orderbook {
             let orderbook = Orderbook {
                 inner: inner_clone,
                 orders_prune_thread: None,
+                shutdown_mutex: mutex_clone,
                 shutdown_condition_variable: shutdown_condition_variable_clone,
                 shutdown: AtomicBool::new(false),
             };
@@ -514,6 +521,7 @@ impl Orderbook {
         Self {
             inner,
             orders_prune_thread: Some(handle),
+            shutdown_mutex,
             shutdown_condition_variable,
             shutdown: AtomicBool::new(false),
         }
@@ -616,8 +624,8 @@ impl Orderbook {
             debug!("wait_duration: {:?}", wait_duration);
 
             // Use a dummy mutex for waiting on the condition variable.
-            let dummy_mutex = Mutex::new(());
-            let guard = dummy_mutex.lock().unwrap();
+            // let dummy_mutex = Mutex::new(());
+            let guard = self.shutdown_mutex.lock().unwrap();
             let (guard, result) = self.shutdown_condition_variable
                 .wait_timeout(guard, wait_duration)
                 .unwrap();
@@ -672,7 +680,7 @@ impl Orderbook {
             }
         }
     }
-    }
+}
 
 impl Drop for Orderbook {
     fn drop(&mut self) {
