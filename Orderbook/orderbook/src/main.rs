@@ -41,7 +41,7 @@ fn setup_logger() -> Result<(), Box<dyn std::error::Error>> {
 
 fn main() {
     setup_logger().unwrap();
-    let mut orderbook = Orderbook::new(BTreeMap::new(), BTreeMap::new());
+    let mut orderbook = Orderbook::build(BTreeMap::new(), BTreeMap::new(), true);
     for i in 1..=1000 {
         let order = Order::new(
             if i % 2 == 0 { OrderType::GoodTillCancel } else { OrderType::Market },
@@ -67,6 +67,6 @@ fn main() {
         thread::sleep(Duration::from_millis(10));
     }
 
-    println!("Orderbook simulation complete.");
+    println!("Main thread complete.");
 }
 
