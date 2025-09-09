@@ -133,8 +133,8 @@ pub struct Order {
     order_id: OrderId,
     /// Buy or Sell.
     side: Side,
-    /// Limit price. For market orders created via [`new_market`], this
-    /// is initialized to a sentinel and may later be set by [`to_good_till_cancel`].
+    /// Limit price. For market orders created via [`Order::new_market`], this
+    /// is initialized to a sentinel and may later be set by [`Order::to_good_till_cancel`].
     price: Price,
     /// Quantity at creation time.
     initial_quantity: Quantity,
@@ -180,7 +180,7 @@ impl Order {
     /// Creates a new **market** order wrapped in `Arc<Mutex<_>>`.
     ///
     /// Initializes `price` to a sentinel (e.g., `i32::MIN`) since market
-    /// orders are price-less until optionally converted via [`to_good_till_cancel`].
+    /// orders are price-less until optionally converted via [`Order::to_good_till_cancel`].
     pub fn new_market(
         order_id: OrderId,
         side: Side,
@@ -494,8 +494,8 @@ pub struct Orderbook {
 /// # Usage
 /// - Use [`Orderbook::new`] to create a book without background pruning.
 /// - Use [`Orderbook::build`] to create a book and launch the pruning thread.
-/// - Use [`add_order`], [`cancel_order`], and [`modify_order`] to interact with orders.
-/// - Use [`size`] and [`get_order_infos`] to query book state.
+/// - Use [`Orderbook::add_order`], [`Orderbook::cancel_order`], and [`Orderbook::modify_order`] to interact with orders.
+/// - Use [`Orderbook::size`] and [`Orderbook::get_order_infos`] to query book state.
 ///
 /// # Background Pruning
 /// If built with [`Orderbook::build`], a background thread will periodically wake up at
