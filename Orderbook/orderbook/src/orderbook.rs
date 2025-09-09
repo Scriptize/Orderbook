@@ -453,6 +453,16 @@ struct LevelData {
 /// book.add_order(my_order); // Internally locks `inner`
 /// ```
 #[derive(Debug)]
+/// Represents the main order book structure, providing thread-safe access and management
+/// of order book state. The `Orderbook` encapsulates synchronization primitives and
+/// background thread management for pruning orders and handling shutdown signals.
+///
+/// Fields:
+/// - `inner`: Shared, mutex-protected inner state of the order book, ensuring safe concurrent access.
+/// - `orders_prune_thread`: Optional handle to a background thread responsible for pruning expired or inactive orders.
+/// - `shutdown_mutex`: Mutex used in conjunction with the condition variable to coordinate shutdown.
+/// - `shutdown_condition_variable`: Condition variable used to signal and wait for shutdown events.
+/// - `shutdown`: Atomic flag indicating whether a shutdown has been requested.
 pub struct Orderbook {
     /// Shared, mutex-protected inner order book state (private to enforce encapsulation).
     inner: Arc<Mutex<InnerOrderbook>>,
@@ -462,6 +472,36 @@ pub struct Orderbook {
     shutdown: AtomicBool,
 }
 
+/// Represents a thread-safe, shareable order book for managing and matching orders.
+///
+/// The `Orderbook` struct wraps an `InnerOrderbook` inside an `Arc<Mutex<_>>` to allow
+/// concurrent access and mutation from multiple threads. It provides a public API for
+/// adding, modifying, and canceling orders, as well as querying book state and depth.
+/// Optionally, it can spawn a background thread to periodically prune Good-For-Day (GFD)
+/// orders at a daily cutoff time.
+///
+/// # Fields
+/// - `inner`: Shared, mutex-protected inner order book state.
+/// - `orders_prune_thread`: Optional handle to the background pruning thread.
+/// - `shutdown_mutex`: Mutex used for coordinating shutdown of the pruning thread.
+/// - `shutdown_condition_variable`: Condition variable for waking the pruning thread.
+/// - `shutdown`: Atomic flag to signal shutdown to the pruning thread.
+///
+/// # Thread Safety
+/// All public methods lock the inner order book before mutating or reading state.
+/// The background pruning thread also locks the book when canceling GFD orders.
+///
+/// # Usage
+/// - Use [`Orderbook::new`] to create a book without background pruning.
+/// - Use [`Orderbook::build`] to create a book and launch the pruning thread.
+/// - Use [`add_order`], [`cancel_order`], and [`modify_order`] to interact with orders.
+/// - Use [`size`] and [`get_order_infos`] to query book state.
+///
+/// # Background Pruning
+/// If built with [`Orderbook::build`], a background thread will periodically wake up at
+/// the configured cutoff hour (default: 16:00 local time) and cancel all GFD orders.
+/// The thread can be signaled to shut down early via the `shutdown` flag and condition variable.
+/// In test mode, the pruning thread performs a single prune cycle and exits.
 impl Orderbook {
     /// Creates a new `Orderbook` with pre-populated bid/ask maps.
     ///
@@ -588,6 +628,26 @@ impl Orderbook {
         let end_hour = 16;
         info!("end_hour: {}", end_hour);
 
+        if test_mode {
+            // In test mode, prune immediately and exit
+            let mut inner = self.inner.lock().unwrap();
+            info!("Pruning Orders! (test mode)");
+            let mut order_ids = vec![];
+
+            for (order_id, entry) in &inner.orders {
+                let order = entry.order.lock().unwrap();
+                if order.get_order_type() == OrderType::GoodForDay {
+                    order_ids.push(*order_id);
+                }
+            }
+
+            for id in order_ids {
+                inner.cancel_order(id);
+            }
+
+            info!("Finished pruning! test mode on");
+            return;
+        }
         loop {
             info!("Started Loop!");
             let now = SystemTime::now();
@@ -673,11 +733,6 @@ impl Orderbook {
 
                 info!("Orders left: {}", inner.orders.len());
             }
-
-            if test_mode {
-                info!("Finished pruning! test mode on");
-                break;
-            }
         }
     }
 }
@@ -732,9 +787,6 @@ impl InnerOrderbook {
             bids,
             asks,
             orders: HashMap::new(),
-            // orders_prune_thread: None,
-            // shutdown_condition_variable: Condvar::new(),
-            // shutdown: AtomicBool::new(false),
             data: HashMap::new(),
         }
     }
@@ -1137,20 +1189,6 @@ impl InnerOrderbook {
     }
 }
 
-// impl Drop for InnerOrderbook {
-//     /// Ensures the pruning thread is stopped cleanly on drop.
-//     ///
-//     /// Sets `shutdown = true`, notifies the condition variable to wake the
-//     /// pruner if it is sleeping, and joins the thread handle if present.
-//     fn drop(&mut self) {
-//         self.shutdown.store(true, Ordering::Release);
-//         self.shutdown_condition_variable.notify_one();
-//         if let Some(handle) = self.orders_prune_thread.take() {
-//             handle.join().expect("Failed to join orders_prune_thread");
-//         }
-//     }
-// }
-
 /// Tests:
 
 //Each test implicitly assumes a working match_orders() functionality
@@ -1280,28 +1318,28 @@ mod test {
 
     }
 
-    // #[test]
-    // fn test_good_for_day_pruning() {
-    //     use chrono::Local;
-    //     let now = Local::now();
-    //     let minute = now.minute();
-    //     let second = now.second();
-    //     let hour = now.hour();
+    #[test]
+    fn test_good_for_day_pruning() {
+        use chrono::Local;
+        let now = Local::now();
+        let minute = now.minute();
+        let second = now.second();
+        let hour = now.hour();
 
-    //     let ob = Orderbook::build(BTreeMap::new(), BTreeMap::new(), true);
-    //     ob.add_order(Order::new(OrderType::GoodForDay, 1, Side::Buy, 100, 10));
-    //     ob.add_order(Order::new(OrderType::GoodForDay, 2, Side::Sell, 200, 10));
-    //     ob.add_order(Order::new(OrderType::GoodTillCancel, 3, Side::Sell, 1000, 10));
+        let ob = Orderbook::build(BTreeMap::new(), BTreeMap::new(), true);
+        ob.add_order(Order::new(OrderType::GoodForDay, 1, Side::Buy, 100, 10));
+        ob.add_order(Order::new(OrderType::GoodForDay, 2, Side::Sell, 200, 10));
+        ob.add_order(Order::new(OrderType::GoodTillCancel, 3, Side::Sell, 1000, 10));
 
-    //     // Find time until next hour
-    //     let secs_until_next_hour = (59 - minute) * 60 + (60 - second);
-    //     if secs_until_next_hour > 180 {
-    //         // More than 3 minutes until next hour, pruning won't happen, just check size is 2
-    //         assert_eq!(ob.size(), 3);
-    //     } else {
-    //         // Within 3 minutes of next hour, pruning may happen soon
-    //         thread::sleep(std::time::Duration::from_millis(200)); // Give prune thread time to run
-    //         assert_eq!(ob.size(), 1);
-    //     }
-    // }
+        // Find time until next hour
+        let secs_until_next_hour = (59 - minute) * 60 + (60 - second);
+        if secs_until_next_hour > 180 {
+            // More than 3 minutes until next hour, pruning won't happen, just check size is 2
+            assert_eq!(ob.size(), 3);
+        } else {
+            // Within 3 minutes of next hour, pruning may happen soon
+            thread::sleep(std::time::Duration::from_millis(200)); // Give prune thread time to run
+            assert_eq!(ob.size(), 1);
+        }
+    }
 }
