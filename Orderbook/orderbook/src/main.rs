@@ -41,7 +41,7 @@ fn setup_logger() -> Result<(), Box<dyn std::error::Error>> {
 
 fn main() {
     setup_logger().unwrap();
-    let mut orderbook = Orderbook::build(BTreeMap::new(), BTreeMap::new(), true);
+    let orderbook = Orderbook::build(BTreeMap::new(), BTreeMap::new(), true);
     for i in 1..=1000 {
         let order = Order::new(
             if i % 2 == 0 { OrderType::GoodTillCancel } else { OrderType::Market },

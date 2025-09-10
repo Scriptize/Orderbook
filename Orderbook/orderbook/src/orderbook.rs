@@ -760,12 +760,6 @@ impl Drop for Orderbook {
 /// - Track per-price aggregates in `data` (quantity, count).
 /// - Map `OrderId` → `OrderEntry` to quickly locate and update an order.
 /// - Provide matching (`match_orders`) and administrative flows (add/modify/cancel).
-/// - Optionally run/coordinate a pruning thread for GFD orders via a join handle.
-///
-/// # Concurrency & Lifecycle
-/// - The pruning worker (if any) is owned via `orders_prune_thread`.
-/// - `shutdown` and `shutdown_condition_variable` coordinate graceful stop for pruning.
-///   `Drop` sets `shutdown = true`, notifies the condvar, and joins the worker.
 #[derive(Debug)]
 pub struct InnerOrderbook {
     /// Aggregated per-level stats used for FOK checks and level reporting.
