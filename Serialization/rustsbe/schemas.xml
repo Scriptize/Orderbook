@@ -1,0 +1,4 @@
+<message name="Order" id="1" blockLength="24">
+  <field name="OrderID" type="u64" offset="0"/>
+  <field name="Side" type="u8" offset="8"/>
+</message>
