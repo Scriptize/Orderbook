@@ -55,12 +55,13 @@ use std::{
 };
 use chrono::{Local, NaiveDateTime, TimeDelta, DateTime, Timelike};
 use log::{info, trace, warn, debug, error};
+use serde::{Deserialize, Serialize};
 
 
 
 /// Represents the type of an order in the orderbook.
 /// Determines how the order is handled regarding matching, cancellation, and expiry.
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Deserialize, Serialize, Clone, Copy, PartialEq, Debug)]
 pub enum OrderType {
     /// Persistent order until explicitly cancelled.
     GoodTillCancel, 
@@ -75,7 +76,7 @@ pub enum OrderType {
 }
 
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
 pub enum Side {
     Buy,
     Sell,
@@ -125,7 +126,7 @@ impl OrderbookLevelInfos {
 ///
 /// Tracks identity, side, price, and quantity lifecycle:
 /// initial → remaining/filled, with a convenience flag `filled`.
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Order {
     /// Limit/market/GTC classification for matching behavior.
     order_type: OrderType,
