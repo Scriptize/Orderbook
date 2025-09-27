@@ -469,7 +469,7 @@ pub struct Orderbook {
     orders_prune_thread: Option<JoinHandle<()>>,
     shutdown_mutex: Arc<Mutex<()>>,
     shutdown_condition_variable: Arc<Condvar>,
-    shutdown: AtomicBool,
+    shutdown: Arc<AtomicBool>,
 }
 
 /// Represents a thread-safe, shareable order book for managing and matching orders.
@@ -518,7 +518,7 @@ impl Orderbook {
             orders_prune_thread: None,
             shutdown_mutex: Arc::new(Mutex::new(())),
             shutdown_condition_variable: Condvar::new().into(),
-            shutdown: AtomicBool::new(false)
+            shutdown: Arc::new(AtomicBool::new(false))
         }
     }
 
@@ -553,7 +553,7 @@ impl Orderbook {
                 orders_prune_thread: None,
                 shutdown_mutex: mutex_clone,
                 shutdown_condition_variable: shutdown_condition_variable_clone,
-                shutdown: AtomicBool::new(false),
+                shutdown: shutdown_clone,
             };
             orderbook.prune_gfd_orders(test_mode);
         });
@@ -563,7 +563,7 @@ impl Orderbook {
             orders_prune_thread: Some(handle),
             shutdown_mutex,
             shutdown_condition_variable,
-            shutdown: AtomicBool::new(false),
+            shutdown: shutdown,
         }
     }
 
