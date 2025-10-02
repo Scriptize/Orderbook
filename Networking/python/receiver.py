@@ -1,5 +1,6 @@
 import asyncio
 import struct
+import bincode
 from nicegui import ui
 
 # Create a column to display log/match messages
@@ -40,26 +41,35 @@ async def handle_price_update(reader):
     symbol = (await reader.readexactly(len_symbol)).decode()
     match_label.set_text(f"[PRICE] {symbol}: ${old_price:.2f} -> ${new_price:.2f}")
 
+async def handle_order(reader):
+    header = await reader.readexactly(4)
+    frame_len = int.from_bytes(header, 'big')
+    data = await reader.readexactly(frame_len)
+    order = bincode.loads(data)
+    print(order)
+
+
 # TCP connection handler
 async def handle_client(reader, writer):
     addr = writer.get_extra_info('peername')
     append_log(f"[STATUS] Connected by {addr}")
     try:
         while True:
-            msg_type_raw = await reader.read(1)
-            if not msg_type_raw:
-                break
-            msg_type = struct.unpack("!B", msg_type_raw)[0]
+            await handle_order(reader)
+            # msg_type_raw = await reader.read(1)
+            # if not msg_type_raw:
+            #     break
+            # msg_type = struct.unpack("!B", msg_type_raw)[0]
 
-            if msg_type == 1:
-                await handle_log(reader)
-            elif msg_type == 2:
-                await handle_match(reader)
-            elif msg_type == 3:
-                await handle_price_update(reader)
-            else:
-                append_log(f"[ERROR] Unknown message type: {msg_type}")
-                break
+            # if msg_type == 1:
+            #     await handle_log(reader)
+            # elif msg_type == 2:
+            #     await handle_match(reader)
+            # elif msg_type == 3:
+            #     await handle_price_update(reader)
+            # else:
+            #     append_log(f"[ERROR] Unknown message type: {msg_type}")
+            #     break
     except asyncio.IncompleteReadError:
         append_log(f"[STATUS] Connection from {addr} closed")
     except Exception as e:
