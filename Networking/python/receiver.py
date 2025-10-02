@@ -1,6 +1,6 @@
 import asyncio
 import struct
-import bincode
+import msgpack
 from nicegui import ui
 
 # Create a column to display log/match messages
@@ -45,8 +45,11 @@ async def handle_order(reader):
     header = await reader.readexactly(4)
     frame_len = int.from_bytes(header, 'big')
     data = await reader.readexactly(frame_len)
-    order = bincode.loads(data)
-    print(order)
+    order = msgpack.loads(data)
+    otype, oid, oside, oprice, oquantity, *_ = order
+    print("recieved", order)
+    append_log(f"{oside}Order for {oquantity}/{oquantity} @ {oprice}")
+    
 
 
 # TCP connection handler
@@ -80,8 +83,8 @@ async def handle_client(reader, writer):
 
 # Async TCP server startup
 async def start_tcp_server():
-    server = await asyncio.start_server(handle_client, 'localhost', 12345)
-    append_log("[STATUS] TCP server started on port 12345")
+    server = await asyncio.start_server(handle_client, 'localhost', 9000)
+    append_log("[STATUS] TCP server started on port 9000")
     asyncio.create_task(server.serve_forever())
 
 # Use timer to start server after NiceGUI boots
