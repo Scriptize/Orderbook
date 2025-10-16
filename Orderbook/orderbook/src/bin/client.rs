@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::net::{TcpListener, TcpStream};
 use std::io::{Read, Write};
 use std::thread;
+use rmp_serde;
 // use std::sync::{Arc, Mutex};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -47,12 +48,12 @@ fn main() -> std::io::Result<()> {
 
     for o in orders {
         thread::sleep(std::time::Duration::from_secs(1));
-        let bytes = bincode::serialize(&*o.lock().unwrap()).unwrap();
-        write_frame(&mut stream, &bytes)?;
+        let encoded = rmp_serde::to_vec(&*o.lock().unwrap()).unwrap();
+        write_frame(&mut stream, &encoded)?;
 
-        let resp = read_frame(&mut stream)?;
-        let msg: ServerMsg = bincode::deserialize(&resp).unwrap();
-        eprintln!("CLIENT: server replied: {:?}", msg);
+        // let resp = read_frame(&mut stream)?;
+        // let msg: ServerMsg = bincode::deserialize(&resp).unwrap();
+        // eprintln!("CLIENT: server replied: {:?}", msg);
     }
 
     Ok(())

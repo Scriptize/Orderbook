@@ -55,7 +55,7 @@ async def handle_order(reader):
 # TCP connection handler
 async def handle_client(reader, writer):
     addr = writer.get_extra_info('peername')
-    append_log(f"[STATUS] Connected by {addr}")
+    append_log(f"[STATUS] Connected byx` {addr}")
     try:
         while True:
             await handle_order(reader)
