@@ -3,7 +3,13 @@ from datetime import datetime
 from nicegui import ui
 import random
 from scripts import mock_data, leos_func
+import plotly.graph_objects as go
+import numpy as np
+import asyncio
 import math
+from receiver import start_tcp_server, handle_client, handle_order, subscribers
+
+
 
 logger = logging.getLogger()
 
@@ -23,9 +29,22 @@ class LogElementHandler(logging.Handler):
 
 @ui.page('/')
 def page():
-    update_log = ui.log().classes('w-full h-80')
-    match_log = ui.log().classes('w-full h-80')
-    sys_log = ui.log().classes('w-full h-80')
+    q = asyncio.Queue()
+    subscribers.add(q)
+    order_logs = ui.log().classes('w-25 h-25')
+
+    
+    async def subscribe():
+        while True:
+            msg = await q.get()
+            print("Order Recieved!")
+            otype, oid, oside, oprice, oquantity, *_ = msg
+            order_logs.push(f"{oside}Order for {oquantity}/{oquantity} @ {oprice}", 
+                            classes = "text-red" if oside == "Sell" else "text-green")
+            
+    asyncio.create_task(subscribe())
+    # match_log = ui.log()
+    # sys_log = ui.log()
 
     # Initialize theme state
     is_dark_mode = False
@@ -41,6 +60,7 @@ def page():
             document.body.style.backgroundColor = '{'black' if is_dark_mode else 'white'}';
             document.body.style.color = '{'white' if is_dark_mode else 'black'}';
         """)
+    
 
     # Uncomment the following lines if you want to use logging handlers
     # update_hdl = LogElementHandler(update_log)
@@ -55,7 +75,7 @@ def page():
     # ui.context.client.on_disconnect(lambda: logger.removeHandler(match_hdl))
     # ui.context.client.on_disconnect(lambda: logger.removeHandler(sys_hdl))
 
-    ui.timer(random.randint(1, 2), lambda: leos_func(random.randint(1, 5), update_log=update_log, matches_log=match_log, systems_log=sys_log))
+    # ui.timer(random.randint(1, 2), lambda: leos_func(random.randint(1, 5), update_log=update_log, matches_log=match_log, systems_log=sys_log))
 
     
 @ui.page("/analytics")
@@ -75,6 +95,40 @@ def analytics():
     'rowSelection': 'multiple',
     }).classes('max-h-40')
 
+    def generate_order_book():
+        prices = np.linspace(98, 102, 200)
+        mid = 100
+        bids = np.maximum(0, 1500 - 300 * (mid - prices))
+        bids[prices > mid] = 0
+        asks = np.maximum(0, 300 * (prices - mid))
+        asks[prices < mid] = 0
+        return prices, bids, asks
 
-     
+    # initial chart
+    prices, bids, asks = generate_order_book()
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=prices, y=bids, mode='lines', name='Bids', line=dict(color='blue')))
+    fig.add_trace(go.Scatter(x=prices, y=asks, mode='lines', name='Asks', line=dict(color='orange')))
+    fig.update_layout(
+        title='Live Order Book Depth',
+        xaxis_title='Price',
+        yaxis_title='Quantity',
+        template='plotly_white',
+    )
+
+    chart = ui.plotly(fig).classes('w-[800px] h-[500px]')
+
+    async def update_chart():
+        while True:
+            prices, bids, asks = generate_order_book()
+            chart.figure.data[0].x = prices
+            chart.figure.data[0].y = bids
+            chart.figure.data[1].x = prices
+            chart.figure.data[1].y = asks
+            chart.update()
+            await asyncio.sleep(1)
+
+
+
+ui.timer(1.0, lambda: asyncio.create_task(start_tcp_server()), once=True)
 ui.run()
