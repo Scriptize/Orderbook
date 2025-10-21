@@ -1,0 +1,1725 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `/Users/djb/.cargo/registry/src/index.crates.io-6f17d22bba15001f/jiff-0.2.15/src/lib.rs`."><title>lib.rs - source</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2" crossorigin href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-42caa33d.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="jiff" data-themes="" data-resource-suffix="" data-rustdoc-version="1.84.0 (9fc6b4312 2025-01-07)" data-channel="1.84.0" data-search-js="search-92e6798f.js" data-settings-js="settings-0f613d39.js" ><script src="../../static.files/storage-59e33391.js"></script><script defer src="../../static.files/src-script-56102188.js"></script><script defer src="../../src-files.js"></script><script defer src="../../static.files/main-5f194d8c.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-893ab5e7.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-6580c154.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc src"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title"><h2>Files</h2></div></nav><div class="sidebar-resizer"></div><main><rustdoc-search></rustdoc-search><section id="main-content" class="content"><div class="main-heading"><h1><div class="sub-heading">jiff/</div>lib.rs</h1><rustdoc-toolbar></rustdoc-toolbar></div><div class="example-wrap"><div data-nosnippet><pre class="src-line-numbers">
+<a href="#1" id="1">1</a>
+<a href="#2" id="2">2</a>
+<a href="#3" id="3">3</a>
+<a href="#4" id="4">4</a>
+<a href="#5" id="5">5</a>
+<a href="#6" id="6">6</a>
+<a href="#7" id="7">7</a>
+<a href="#8" id="8">8</a>
+<a href="#9" id="9">9</a>
+<a href="#10" id="10">10</a>
+<a href="#11" id="11">11</a>
+<a href="#12" id="12">12</a>
+<a href="#13" id="13">13</a>
+<a href="#14" id="14">14</a>
+<a href="#15" id="15">15</a>
+<a href="#16" id="16">16</a>
+<a href="#17" id="17">17</a>
+<a href="#18" id="18">18</a>
+<a href="#19" id="19">19</a>
+<a href="#20" id="20">20</a>
+<a href="#21" id="21">21</a>
+<a href="#22" id="22">22</a>
+<a href="#23" id="23">23</a>
+<a href="#24" id="24">24</a>
+<a href="#25" id="25">25</a>
+<a href="#26" id="26">26</a>
+<a href="#27" id="27">27</a>
+<a href="#28" id="28">28</a>
+<a href="#29" id="29">29</a>
+<a href="#30" id="30">30</a>
+<a href="#31" id="31">31</a>
+<a href="#32" id="32">32</a>
+<a href="#33" id="33">33</a>
+<a href="#34" id="34">34</a>
+<a href="#35" id="35">35</a>
+<a href="#36" id="36">36</a>
+<a href="#37" id="37">37</a>
+<a href="#38" id="38">38</a>
+<a href="#39" id="39">39</a>
+<a href="#40" id="40">40</a>
+<a href="#41" id="41">41</a>
+<a href="#42" id="42">42</a>
+<a href="#43" id="43">43</a>
+<a href="#44" id="44">44</a>
+<a href="#45" id="45">45</a>
+<a href="#46" id="46">46</a>
+<a href="#47" id="47">47</a>
+<a href="#48" id="48">48</a>
+<a href="#49" id="49">49</a>
+<a href="#50" id="50">50</a>
+<a href="#51" id="51">51</a>
+<a href="#52" id="52">52</a>
+<a href="#53" id="53">53</a>
+<a href="#54" id="54">54</a>
+<a href="#55" id="55">55</a>
+<a href="#56" id="56">56</a>
+<a href="#57" id="57">57</a>
+<a href="#58" id="58">58</a>
+<a href="#59" id="59">59</a>
+<a href="#60" id="60">60</a>
+<a href="#61" id="61">61</a>
+<a href="#62" id="62">62</a>
+<a href="#63" id="63">63</a>
+<a href="#64" id="64">64</a>
+<a href="#65" id="65">65</a>
+<a href="#66" id="66">66</a>
+<a href="#67" id="67">67</a>
+<a href="#68" id="68">68</a>
+<a href="#69" id="69">69</a>
+<a href="#70" id="70">70</a>
+<a href="#71" id="71">71</a>
+<a href="#72" id="72">72</a>
+<a href="#73" id="73">73</a>
+<a href="#74" id="74">74</a>
+<a href="#75" id="75">75</a>
+<a href="#76" id="76">76</a>
+<a href="#77" id="77">77</a>
+<a href="#78" id="78">78</a>
+<a href="#79" id="79">79</a>
+<a href="#80" id="80">80</a>
+<a href="#81" id="81">81</a>
+<a href="#82" id="82">82</a>
+<a href="#83" id="83">83</a>
+<a href="#84" id="84">84</a>
+<a href="#85" id="85">85</a>
+<a href="#86" id="86">86</a>
+<a href="#87" id="87">87</a>
+<a href="#88" id="88">88</a>
+<a href="#89" id="89">89</a>
+<a href="#90" id="90">90</a>
+<a href="#91" id="91">91</a>
+<a href="#92" id="92">92</a>
+<a href="#93" id="93">93</a>
+<a href="#94" id="94">94</a>
+<a href="#95" id="95">95</a>
+<a href="#96" id="96">96</a>
+<a href="#97" id="97">97</a>
+<a href="#98" id="98">98</a>
+<a href="#99" id="99">99</a>
+<a href="#100" id="100">100</a>
+<a href="#101" id="101">101</a>
+<a href="#102" id="102">102</a>
+<a href="#103" id="103">103</a>
+<a href="#104" id="104">104</a>
+<a href="#105" id="105">105</a>
+<a href="#106" id="106">106</a>
+<a href="#107" id="107">107</a>
+<a href="#108" id="108">108</a>
+<a href="#109" id="109">109</a>
+<a href="#110" id="110">110</a>
+<a href="#111" id="111">111</a>
+<a href="#112" id="112">112</a>
+<a href="#113" id="113">113</a>
+<a href="#114" id="114">114</a>
+<a href="#115" id="115">115</a>
+<a href="#116" id="116">116</a>
+<a href="#117" id="117">117</a>
+<a href="#118" id="118">118</a>
+<a href="#119" id="119">119</a>
+<a href="#120" id="120">120</a>
+<a href="#121" id="121">121</a>
+<a href="#122" id="122">122</a>
+<a href="#123" id="123">123</a>
+<a href="#124" id="124">124</a>
+<a href="#125" id="125">125</a>
+<a href="#126" id="126">126</a>
+<a href="#127" id="127">127</a>
+<a href="#128" id="128">128</a>
+<a href="#129" id="129">129</a>
+<a href="#130" id="130">130</a>
+<a href="#131" id="131">131</a>
+<a href="#132" id="132">132</a>
+<a href="#133" id="133">133</a>
+<a href="#134" id="134">134</a>
+<a href="#135" id="135">135</a>
+<a href="#136" id="136">136</a>
+<a href="#137" id="137">137</a>
+<a href="#138" id="138">138</a>
+<a href="#139" id="139">139</a>
+<a href="#140" id="140">140</a>
+<a href="#141" id="141">141</a>
+<a href="#142" id="142">142</a>
+<a href="#143" id="143">143</a>
+<a href="#144" id="144">144</a>
+<a href="#145" id="145">145</a>
+<a href="#146" id="146">146</a>
+<a href="#147" id="147">147</a>
+<a href="#148" id="148">148</a>
+<a href="#149" id="149">149</a>
+<a href="#150" id="150">150</a>
+<a href="#151" id="151">151</a>
+<a href="#152" id="152">152</a>
+<a href="#153" id="153">153</a>
+<a href="#154" id="154">154</a>
+<a href="#155" id="155">155</a>
+<a href="#156" id="156">156</a>
+<a href="#157" id="157">157</a>
+<a href="#158" id="158">158</a>
+<a href="#159" id="159">159</a>
+<a href="#160" id="160">160</a>
+<a href="#161" id="161">161</a>
+<a href="#162" id="162">162</a>
+<a href="#163" id="163">163</a>
+<a href="#164" id="164">164</a>
+<a href="#165" id="165">165</a>
+<a href="#166" id="166">166</a>
+<a href="#167" id="167">167</a>
+<a href="#168" id="168">168</a>
+<a href="#169" id="169">169</a>
+<a href="#170" id="170">170</a>
+<a href="#171" id="171">171</a>
+<a href="#172" id="172">172</a>
+<a href="#173" id="173">173</a>
+<a href="#174" id="174">174</a>
+<a href="#175" id="175">175</a>
+<a href="#176" id="176">176</a>
+<a href="#177" id="177">177</a>
+<a href="#178" id="178">178</a>
+<a href="#179" id="179">179</a>
+<a href="#180" id="180">180</a>
+<a href="#181" id="181">181</a>
+<a href="#182" id="182">182</a>
+<a href="#183" id="183">183</a>
+<a href="#184" id="184">184</a>
+<a href="#185" id="185">185</a>
+<a href="#186" id="186">186</a>
+<a href="#187" id="187">187</a>
+<a href="#188" id="188">188</a>
+<a href="#189" id="189">189</a>
+<a href="#190" id="190">190</a>
+<a href="#191" id="191">191</a>
+<a href="#192" id="192">192</a>
+<a href="#193" id="193">193</a>
+<a href="#194" id="194">194</a>
+<a href="#195" id="195">195</a>
+<a href="#196" id="196">196</a>
+<a href="#197" id="197">197</a>
+<a href="#198" id="198">198</a>
+<a href="#199" id="199">199</a>
+<a href="#200" id="200">200</a>
+<a href="#201" id="201">201</a>
+<a href="#202" id="202">202</a>
+<a href="#203" id="203">203</a>
+<a href="#204" id="204">204</a>
+<a href="#205" id="205">205</a>
+<a href="#206" id="206">206</a>
+<a href="#207" id="207">207</a>
+<a href="#208" id="208">208</a>
+<a href="#209" id="209">209</a>
+<a href="#210" id="210">210</a>
+<a href="#211" id="211">211</a>
+<a href="#212" id="212">212</a>
+<a href="#213" id="213">213</a>
+<a href="#214" id="214">214</a>
+<a href="#215" id="215">215</a>
+<a href="#216" id="216">216</a>
+<a href="#217" id="217">217</a>
+<a href="#218" id="218">218</a>
+<a href="#219" id="219">219</a>
+<a href="#220" id="220">220</a>
+<a href="#221" id="221">221</a>
+<a href="#222" id="222">222</a>
+<a href="#223" id="223">223</a>
+<a href="#224" id="224">224</a>
+<a href="#225" id="225">225</a>
+<a href="#226" id="226">226</a>
+<a href="#227" id="227">227</a>
+<a href="#228" id="228">228</a>
+<a href="#229" id="229">229</a>
+<a href="#230" id="230">230</a>
+<a href="#231" id="231">231</a>
+<a href="#232" id="232">232</a>
+<a href="#233" id="233">233</a>
+<a href="#234" id="234">234</a>
+<a href="#235" id="235">235</a>
+<a href="#236" id="236">236</a>
+<a href="#237" id="237">237</a>
+<a href="#238" id="238">238</a>
+<a href="#239" id="239">239</a>
+<a href="#240" id="240">240</a>
+<a href="#241" id="241">241</a>
+<a href="#242" id="242">242</a>
+<a href="#243" id="243">243</a>
+<a href="#244" id="244">244</a>
+<a href="#245" id="245">245</a>
+<a href="#246" id="246">246</a>
+<a href="#247" id="247">247</a>
+<a href="#248" id="248">248</a>
+<a href="#249" id="249">249</a>
+<a href="#250" id="250">250</a>
+<a href="#251" id="251">251</a>
+<a href="#252" id="252">252</a>
+<a href="#253" id="253">253</a>
+<a href="#254" id="254">254</a>
+<a href="#255" id="255">255</a>
+<a href="#256" id="256">256</a>
+<a href="#257" id="257">257</a>
+<a href="#258" id="258">258</a>
+<a href="#259" id="259">259</a>
+<a href="#260" id="260">260</a>
+<a href="#261" id="261">261</a>
+<a href="#262" id="262">262</a>
+<a href="#263" id="263">263</a>
+<a href="#264" id="264">264</a>
+<a href="#265" id="265">265</a>
+<a href="#266" id="266">266</a>
+<a href="#267" id="267">267</a>
+<a href="#268" id="268">268</a>
+<a href="#269" id="269">269</a>
+<a href="#270" id="270">270</a>
+<a href="#271" id="271">271</a>
+<a href="#272" id="272">272</a>
+<a href="#273" id="273">273</a>
+<a href="#274" id="274">274</a>
+<a href="#275" id="275">275</a>
+<a href="#276" id="276">276</a>
+<a href="#277" id="277">277</a>
+<a href="#278" id="278">278</a>
+<a href="#279" id="279">279</a>
+<a href="#280" id="280">280</a>
+<a href="#281" id="281">281</a>
+<a href="#282" id="282">282</a>
+<a href="#283" id="283">283</a>
+<a href="#284" id="284">284</a>
+<a href="#285" id="285">285</a>
+<a href="#286" id="286">286</a>
+<a href="#287" id="287">287</a>
+<a href="#288" id="288">288</a>
+<a href="#289" id="289">289</a>
+<a href="#290" id="290">290</a>
+<a href="#291" id="291">291</a>
+<a href="#292" id="292">292</a>
+<a href="#293" id="293">293</a>
+<a href="#294" id="294">294</a>
+<a href="#295" id="295">295</a>
+<a href="#296" id="296">296</a>
+<a href="#297" id="297">297</a>
+<a href="#298" id="298">298</a>
+<a href="#299" id="299">299</a>
+<a href="#300" id="300">300</a>
+<a href="#301" id="301">301</a>
+<a href="#302" id="302">302</a>
+<a href="#303" id="303">303</a>
+<a href="#304" id="304">304</a>
+<a href="#305" id="305">305</a>
+<a href="#306" id="306">306</a>
+<a href="#307" id="307">307</a>
+<a href="#308" id="308">308</a>
+<a href="#309" id="309">309</a>
+<a href="#310" id="310">310</a>
+<a href="#311" id="311">311</a>
+<a href="#312" id="312">312</a>
+<a href="#313" id="313">313</a>
+<a href="#314" id="314">314</a>
+<a href="#315" id="315">315</a>
+<a href="#316" id="316">316</a>
+<a href="#317" id="317">317</a>
+<a href="#318" id="318">318</a>
+<a href="#319" id="319">319</a>
+<a href="#320" id="320">320</a>
+<a href="#321" id="321">321</a>
+<a href="#322" id="322">322</a>
+<a href="#323" id="323">323</a>
+<a href="#324" id="324">324</a>
+<a href="#325" id="325">325</a>
+<a href="#326" id="326">326</a>
+<a href="#327" id="327">327</a>
+<a href="#328" id="328">328</a>
+<a href="#329" id="329">329</a>
+<a href="#330" id="330">330</a>
+<a href="#331" id="331">331</a>
+<a href="#332" id="332">332</a>
+<a href="#333" id="333">333</a>
+<a href="#334" id="334">334</a>
+<a href="#335" id="335">335</a>
+<a href="#336" id="336">336</a>
+<a href="#337" id="337">337</a>
+<a href="#338" id="338">338</a>
+<a href="#339" id="339">339</a>
+<a href="#340" id="340">340</a>
+<a href="#341" id="341">341</a>
+<a href="#342" id="342">342</a>
+<a href="#343" id="343">343</a>
+<a href="#344" id="344">344</a>
+<a href="#345" id="345">345</a>
+<a href="#346" id="346">346</a>
+<a href="#347" id="347">347</a>
+<a href="#348" id="348">348</a>
+<a href="#349" id="349">349</a>
+<a href="#350" id="350">350</a>
+<a href="#351" id="351">351</a>
+<a href="#352" id="352">352</a>
+<a href="#353" id="353">353</a>
+<a href="#354" id="354">354</a>
+<a href="#355" id="355">355</a>
+<a href="#356" id="356">356</a>
+<a href="#357" id="357">357</a>
+<a href="#358" id="358">358</a>
+<a href="#359" id="359">359</a>
+<a href="#360" id="360">360</a>
+<a href="#361" id="361">361</a>
+<a href="#362" id="362">362</a>
+<a href="#363" id="363">363</a>
+<a href="#364" id="364">364</a>
+<a href="#365" id="365">365</a>
+<a href="#366" id="366">366</a>
+<a href="#367" id="367">367</a>
+<a href="#368" id="368">368</a>
+<a href="#369" id="369">369</a>
+<a href="#370" id="370">370</a>
+<a href="#371" id="371">371</a>
+<a href="#372" id="372">372</a>
+<a href="#373" id="373">373</a>
+<a href="#374" id="374">374</a>
+<a href="#375" id="375">375</a>
+<a href="#376" id="376">376</a>
+<a href="#377" id="377">377</a>
+<a href="#378" id="378">378</a>
+<a href="#379" id="379">379</a>
+<a href="#380" id="380">380</a>
+<a href="#381" id="381">381</a>
+<a href="#382" id="382">382</a>
+<a href="#383" id="383">383</a>
+<a href="#384" id="384">384</a>
+<a href="#385" id="385">385</a>
+<a href="#386" id="386">386</a>
+<a href="#387" id="387">387</a>
+<a href="#388" id="388">388</a>
+<a href="#389" id="389">389</a>
+<a href="#390" id="390">390</a>
+<a href="#391" id="391">391</a>
+<a href="#392" id="392">392</a>
+<a href="#393" id="393">393</a>
+<a href="#394" id="394">394</a>
+<a href="#395" id="395">395</a>
+<a href="#396" id="396">396</a>
+<a href="#397" id="397">397</a>
+<a href="#398" id="398">398</a>
+<a href="#399" id="399">399</a>
+<a href="#400" id="400">400</a>
+<a href="#401" id="401">401</a>
+<a href="#402" id="402">402</a>
+<a href="#403" id="403">403</a>
+<a href="#404" id="404">404</a>
+<a href="#405" id="405">405</a>
+<a href="#406" id="406">406</a>
+<a href="#407" id="407">407</a>
+<a href="#408" id="408">408</a>
+<a href="#409" id="409">409</a>
+<a href="#410" id="410">410</a>
+<a href="#411" id="411">411</a>
+<a href="#412" id="412">412</a>
+<a href="#413" id="413">413</a>
+<a href="#414" id="414">414</a>
+<a href="#415" id="415">415</a>
+<a href="#416" id="416">416</a>
+<a href="#417" id="417">417</a>
+<a href="#418" id="418">418</a>
+<a href="#419" id="419">419</a>
+<a href="#420" id="420">420</a>
+<a href="#421" id="421">421</a>
+<a href="#422" id="422">422</a>
+<a href="#423" id="423">423</a>
+<a href="#424" id="424">424</a>
+<a href="#425" id="425">425</a>
+<a href="#426" id="426">426</a>
+<a href="#427" id="427">427</a>
+<a href="#428" id="428">428</a>
+<a href="#429" id="429">429</a>
+<a href="#430" id="430">430</a>
+<a href="#431" id="431">431</a>
+<a href="#432" id="432">432</a>
+<a href="#433" id="433">433</a>
+<a href="#434" id="434">434</a>
+<a href="#435" id="435">435</a>
+<a href="#436" id="436">436</a>
+<a href="#437" id="437">437</a>
+<a href="#438" id="438">438</a>
+<a href="#439" id="439">439</a>
+<a href="#440" id="440">440</a>
+<a href="#441" id="441">441</a>
+<a href="#442" id="442">442</a>
+<a href="#443" id="443">443</a>
+<a href="#444" id="444">444</a>
+<a href="#445" id="445">445</a>
+<a href="#446" id="446">446</a>
+<a href="#447" id="447">447</a>
+<a href="#448" id="448">448</a>
+<a href="#449" id="449">449</a>
+<a href="#450" id="450">450</a>
+<a href="#451" id="451">451</a>
+<a href="#452" id="452">452</a>
+<a href="#453" id="453">453</a>
+<a href="#454" id="454">454</a>
+<a href="#455" id="455">455</a>
+<a href="#456" id="456">456</a>
+<a href="#457" id="457">457</a>
+<a href="#458" id="458">458</a>
+<a href="#459" id="459">459</a>
+<a href="#460" id="460">460</a>
+<a href="#461" id="461">461</a>
+<a href="#462" id="462">462</a>
+<a href="#463" id="463">463</a>
+<a href="#464" id="464">464</a>
+<a href="#465" id="465">465</a>
+<a href="#466" id="466">466</a>
+<a href="#467" id="467">467</a>
+<a href="#468" id="468">468</a>
+<a href="#469" id="469">469</a>
+<a href="#470" id="470">470</a>
+<a href="#471" id="471">471</a>
+<a href="#472" id="472">472</a>
+<a href="#473" id="473">473</a>
+<a href="#474" id="474">474</a>
+<a href="#475" id="475">475</a>
+<a href="#476" id="476">476</a>
+<a href="#477" id="477">477</a>
+<a href="#478" id="478">478</a>
+<a href="#479" id="479">479</a>
+<a href="#480" id="480">480</a>
+<a href="#481" id="481">481</a>
+<a href="#482" id="482">482</a>
+<a href="#483" id="483">483</a>
+<a href="#484" id="484">484</a>
+<a href="#485" id="485">485</a>
+<a href="#486" id="486">486</a>
+<a href="#487" id="487">487</a>
+<a href="#488" id="488">488</a>
+<a href="#489" id="489">489</a>
+<a href="#490" id="490">490</a>
+<a href="#491" id="491">491</a>
+<a href="#492" id="492">492</a>
+<a href="#493" id="493">493</a>
+<a href="#494" id="494">494</a>
+<a href="#495" id="495">495</a>
+<a href="#496" id="496">496</a>
+<a href="#497" id="497">497</a>
+<a href="#498" id="498">498</a>
+<a href="#499" id="499">499</a>
+<a href="#500" id="500">500</a>
+<a href="#501" id="501">501</a>
+<a href="#502" id="502">502</a>
+<a href="#503" id="503">503</a>
+<a href="#504" id="504">504</a>
+<a href="#505" id="505">505</a>
+<a href="#506" id="506">506</a>
+<a href="#507" id="507">507</a>
+<a href="#508" id="508">508</a>
+<a href="#509" id="509">509</a>
+<a href="#510" id="510">510</a>
+<a href="#511" id="511">511</a>
+<a href="#512" id="512">512</a>
+<a href="#513" id="513">513</a>
+<a href="#514" id="514">514</a>
+<a href="#515" id="515">515</a>
+<a href="#516" id="516">516</a>
+<a href="#517" id="517">517</a>
+<a href="#518" id="518">518</a>
+<a href="#519" id="519">519</a>
+<a href="#520" id="520">520</a>
+<a href="#521" id="521">521</a>
+<a href="#522" id="522">522</a>
+<a href="#523" id="523">523</a>
+<a href="#524" id="524">524</a>
+<a href="#525" id="525">525</a>
+<a href="#526" id="526">526</a>
+<a href="#527" id="527">527</a>
+<a href="#528" id="528">528</a>
+<a href="#529" id="529">529</a>
+<a href="#530" id="530">530</a>
+<a href="#531" id="531">531</a>
+<a href="#532" id="532">532</a>
+<a href="#533" id="533">533</a>
+<a href="#534" id="534">534</a>
+<a href="#535" id="535">535</a>
+<a href="#536" id="536">536</a>
+<a href="#537" id="537">537</a>
+<a href="#538" id="538">538</a>
+<a href="#539" id="539">539</a>
+<a href="#540" id="540">540</a>
+<a href="#541" id="541">541</a>
+<a href="#542" id="542">542</a>
+<a href="#543" id="543">543</a>
+<a href="#544" id="544">544</a>
+<a href="#545" id="545">545</a>
+<a href="#546" id="546">546</a>
+<a href="#547" id="547">547</a>
+<a href="#548" id="548">548</a>
+<a href="#549" id="549">549</a>
+<a href="#550" id="550">550</a>
+<a href="#551" id="551">551</a>
+<a href="#552" id="552">552</a>
+<a href="#553" id="553">553</a>
+<a href="#554" id="554">554</a>
+<a href="#555" id="555">555</a>
+<a href="#556" id="556">556</a>
+<a href="#557" id="557">557</a>
+<a href="#558" id="558">558</a>
+<a href="#559" id="559">559</a>
+<a href="#560" id="560">560</a>
+<a href="#561" id="561">561</a>
+<a href="#562" id="562">562</a>
+<a href="#563" id="563">563</a>
+<a href="#564" id="564">564</a>
+<a href="#565" id="565">565</a>
+<a href="#566" id="566">566</a>
+<a href="#567" id="567">567</a>
+<a href="#568" id="568">568</a>
+<a href="#569" id="569">569</a>
+<a href="#570" id="570">570</a>
+<a href="#571" id="571">571</a>
+<a href="#572" id="572">572</a>
+<a href="#573" id="573">573</a>
+<a href="#574" id="574">574</a>
+<a href="#575" id="575">575</a>
+<a href="#576" id="576">576</a>
+<a href="#577" id="577">577</a>
+<a href="#578" id="578">578</a>
+<a href="#579" id="579">579</a>
+<a href="#580" id="580">580</a>
+<a href="#581" id="581">581</a>
+<a href="#582" id="582">582</a>
+<a href="#583" id="583">583</a>
+<a href="#584" id="584">584</a>
+<a href="#585" id="585">585</a>
+<a href="#586" id="586">586</a>
+<a href="#587" id="587">587</a>
+<a href="#588" id="588">588</a>
+<a href="#589" id="589">589</a>
+<a href="#590" id="590">590</a>
+<a href="#591" id="591">591</a>
+<a href="#592" id="592">592</a>
+<a href="#593" id="593">593</a>
+<a href="#594" id="594">594</a>
+<a href="#595" id="595">595</a>
+<a href="#596" id="596">596</a>
+<a href="#597" id="597">597</a>
+<a href="#598" id="598">598</a>
+<a href="#599" id="599">599</a>
+<a href="#600" id="600">600</a>
+<a href="#601" id="601">601</a>
+<a href="#602" id="602">602</a>
+<a href="#603" id="603">603</a>
+<a href="#604" id="604">604</a>
+<a href="#605" id="605">605</a>
+<a href="#606" id="606">606</a>
+<a href="#607" id="607">607</a>
+<a href="#608" id="608">608</a>
+<a href="#609" id="609">609</a>
+<a href="#610" id="610">610</a>
+<a href="#611" id="611">611</a>
+<a href="#612" id="612">612</a>
+<a href="#613" id="613">613</a>
+<a href="#614" id="614">614</a>
+<a href="#615" id="615">615</a>
+<a href="#616" id="616">616</a>
+<a href="#617" id="617">617</a>
+<a href="#618" id="618">618</a>
+<a href="#619" id="619">619</a>
+<a href="#620" id="620">620</a>
+<a href="#621" id="621">621</a>
+<a href="#622" id="622">622</a>
+<a href="#623" id="623">623</a>
+<a href="#624" id="624">624</a>
+<a href="#625" id="625">625</a>
+<a href="#626" id="626">626</a>
+<a href="#627" id="627">627</a>
+<a href="#628" id="628">628</a>
+<a href="#629" id="629">629</a>
+<a href="#630" id="630">630</a>
+<a href="#631" id="631">631</a>
+<a href="#632" id="632">632</a>
+<a href="#633" id="633">633</a>
+<a href="#634" id="634">634</a>
+<a href="#635" id="635">635</a>
+<a href="#636" id="636">636</a>
+<a href="#637" id="637">637</a>
+<a href="#638" id="638">638</a>
+<a href="#639" id="639">639</a>
+<a href="#640" id="640">640</a>
+<a href="#641" id="641">641</a>
+<a href="#642" id="642">642</a>
+<a href="#643" id="643">643</a>
+<a href="#644" id="644">644</a>
+<a href="#645" id="645">645</a>
+<a href="#646" id="646">646</a>
+<a href="#647" id="647">647</a>
+<a href="#648" id="648">648</a>
+<a href="#649" id="649">649</a>
+<a href="#650" id="650">650</a>
+<a href="#651" id="651">651</a>
+<a href="#652" id="652">652</a>
+<a href="#653" id="653">653</a>
+<a href="#654" id="654">654</a>
+<a href="#655" id="655">655</a>
+<a href="#656" id="656">656</a>
+<a href="#657" id="657">657</a>
+<a href="#658" id="658">658</a>
+<a href="#659" id="659">659</a>
+<a href="#660" id="660">660</a>
+<a href="#661" id="661">661</a>
+<a href="#662" id="662">662</a>
+<a href="#663" id="663">663</a>
+<a href="#664" id="664">664</a>
+<a href="#665" id="665">665</a>
+<a href="#666" id="666">666</a>
+<a href="#667" id="667">667</a>
+<a href="#668" id="668">668</a>
+<a href="#669" id="669">669</a>
+<a href="#670" id="670">670</a>
+<a href="#671" id="671">671</a>
+<a href="#672" id="672">672</a>
+<a href="#673" id="673">673</a>
+<a href="#674" id="674">674</a>
+<a href="#675" id="675">675</a>
+<a href="#676" id="676">676</a>
+<a href="#677" id="677">677</a>
+<a href="#678" id="678">678</a>
+<a href="#679" id="679">679</a>
+<a href="#680" id="680">680</a>
+<a href="#681" id="681">681</a>
+<a href="#682" id="682">682</a>
+<a href="#683" id="683">683</a>
+<a href="#684" id="684">684</a>
+<a href="#685" id="685">685</a>
+<a href="#686" id="686">686</a>
+<a href="#687" id="687">687</a>
+<a href="#688" id="688">688</a>
+<a href="#689" id="689">689</a>
+<a href="#690" id="690">690</a>
+<a href="#691" id="691">691</a>
+<a href="#692" id="692">692</a>
+<a href="#693" id="693">693</a>
+<a href="#694" id="694">694</a>
+<a href="#695" id="695">695</a>
+<a href="#696" id="696">696</a>
+<a href="#697" id="697">697</a>
+<a href="#698" id="698">698</a>
+<a href="#699" id="699">699</a>
+<a href="#700" id="700">700</a>
+<a href="#701" id="701">701</a>
+<a href="#702" id="702">702</a>
+<a href="#703" id="703">703</a>
+<a href="#704" id="704">704</a>
+<a href="#705" id="705">705</a>
+<a href="#706" id="706">706</a>
+<a href="#707" id="707">707</a>
+<a href="#708" id="708">708</a>
+<a href="#709" id="709">709</a>
+<a href="#710" id="710">710</a>
+<a href="#711" id="711">711</a>
+<a href="#712" id="712">712</a>
+<a href="#713" id="713">713</a>
+<a href="#714" id="714">714</a>
+<a href="#715" id="715">715</a>
+<a href="#716" id="716">716</a>
+<a href="#717" id="717">717</a>
+<a href="#718" id="718">718</a>
+<a href="#719" id="719">719</a>
+<a href="#720" id="720">720</a>
+<a href="#721" id="721">721</a>
+<a href="#722" id="722">722</a>
+<a href="#723" id="723">723</a>
+<a href="#724" id="724">724</a>
+<a href="#725" id="725">725</a>
+<a href="#726" id="726">726</a>
+<a href="#727" id="727">727</a>
+<a href="#728" id="728">728</a>
+<a href="#729" id="729">729</a>
+<a href="#730" id="730">730</a>
+<a href="#731" id="731">731</a>
+<a href="#732" id="732">732</a>
+<a href="#733" id="733">733</a>
+<a href="#734" id="734">734</a>
+<a href="#735" id="735">735</a>
+<a href="#736" id="736">736</a>
+<a href="#737" id="737">737</a>
+<a href="#738" id="738">738</a>
+<a href="#739" id="739">739</a>
+<a href="#740" id="740">740</a>
+<a href="#741" id="741">741</a>
+<a href="#742" id="742">742</a>
+<a href="#743" id="743">743</a>
+<a href="#744" id="744">744</a>
+<a href="#745" id="745">745</a>
+<a href="#746" id="746">746</a>
+<a href="#747" id="747">747</a>
+<a href="#748" id="748">748</a>
+<a href="#749" id="749">749</a>
+<a href="#750" id="750">750</a>
+<a href="#751" id="751">751</a>
+<a href="#752" id="752">752</a>
+<a href="#753" id="753">753</a>
+<a href="#754" id="754">754</a>
+<a href="#755" id="755">755</a>
+<a href="#756" id="756">756</a>
+<a href="#757" id="757">757</a>
+<a href="#758" id="758">758</a>
+<a href="#759" id="759">759</a>
+<a href="#760" id="760">760</a>
+<a href="#761" id="761">761</a>
+<a href="#762" id="762">762</a>
+<a href="#763" id="763">763</a>
+<a href="#764" id="764">764</a>
+<a href="#765" id="765">765</a>
+<a href="#766" id="766">766</a>
+<a href="#767" id="767">767</a>
+<a href="#768" id="768">768</a>
+<a href="#769" id="769">769</a>
+<a href="#770" id="770">770</a>
+<a href="#771" id="771">771</a>
+<a href="#772" id="772">772</a>
+<a href="#773" id="773">773</a>
+<a href="#774" id="774">774</a>
+<a href="#775" id="775">775</a>
+<a href="#776" id="776">776</a>
+<a href="#777" id="777">777</a>
+<a href="#778" id="778">778</a>
+<a href="#779" id="779">779</a>
+<a href="#780" id="780">780</a>
+<a href="#781" id="781">781</a>
+<a href="#782" id="782">782</a>
+<a href="#783" id="783">783</a>
+<a href="#784" id="784">784</a>
+<a href="#785" id="785">785</a>
+<a href="#786" id="786">786</a>
+<a href="#787" id="787">787</a>
+<a href="#788" id="788">788</a>
+<a href="#789" id="789">789</a>
+<a href="#790" id="790">790</a>
+<a href="#791" id="791">791</a>
+<a href="#792" id="792">792</a>
+<a href="#793" id="793">793</a>
+<a href="#794" id="794">794</a>
+<a href="#795" id="795">795</a>
+<a href="#796" id="796">796</a>
+<a href="#797" id="797">797</a>
+<a href="#798" id="798">798</a>
+<a href="#799" id="799">799</a>
+<a href="#800" id="800">800</a>
+<a href="#801" id="801">801</a>
+<a href="#802" id="802">802</a>
+<a href="#803" id="803">803</a>
+<a href="#804" id="804">804</a>
+<a href="#805" id="805">805</a>
+<a href="#806" id="806">806</a>
+<a href="#807" id="807">807</a>
+<a href="#808" id="808">808</a>
+<a href="#809" id="809">809</a>
+<a href="#810" id="810">810</a>
+<a href="#811" id="811">811</a>
+<a href="#812" id="812">812</a>
+<a href="#813" id="813">813</a>
+<a href="#814" id="814">814</a>
+<a href="#815" id="815">815</a>
+<a href="#816" id="816">816</a>
+<a href="#817" id="817">817</a>
+<a href="#818" id="818">818</a>
+<a href="#819" id="819">819</a>
+<a href="#820" id="820">820</a>
+<a href="#821" id="821">821</a>
+<a href="#822" id="822">822</a>
+<a href="#823" id="823">823</a>
+<a href="#824" id="824">824</a>
+<a href="#825" id="825">825</a>
+<a href="#826" id="826">826</a>
+<a href="#827" id="827">827</a>
+<a href="#828" id="828">828</a>
+<a href="#829" id="829">829</a>
+<a href="#830" id="830">830</a>
+<a href="#831" id="831">831</a>
+<a href="#832" id="832">832</a>
+<a href="#833" id="833">833</a>
+<a href="#834" id="834">834</a>
+<a href="#835" id="835">835</a>
+<a href="#836" id="836">836</a>
+<a href="#837" id="837">837</a>
+<a href="#838" id="838">838</a>
+<a href="#839" id="839">839</a>
+<a href="#840" id="840">840</a>
+<a href="#841" id="841">841</a>
+<a href="#842" id="842">842</a>
+<a href="#843" id="843">843</a>
+<a href="#844" id="844">844</a>
+<a href="#845" id="845">845</a>
+<a href="#846" id="846">846</a>
+<a href="#847" id="847">847</a>
+<a href="#848" id="848">848</a>
+<a href="#849" id="849">849</a>
+<a href="#850" id="850">850</a>
+<a href="#851" id="851">851</a>
+<a href="#852" id="852">852</a>
+<a href="#853" id="853">853</a>
+<a href="#854" id="854">854</a>
+<a href="#855" id="855">855</a>
+<a href="#856" id="856">856</a>
+<a href="#857" id="857">857</a>
+<a href="#858" id="858">858</a>
+<a href="#859" id="859">859</a>
+<a href="#860" id="860">860</a>
+<a href="#861" id="861">861</a>
+<a href="#862" id="862">862</a></pre></div><pre class="rust"><code><span class="doccomment">/*!
+Jiff is a datetime library for Rust that encourages you to jump into the pit
+of success. The focus of this library is providing high level datetime
+primitives that are difficult to misuse and have reasonable performance.
+
+Jiff takes enormous inspiration from [Temporal], which is a [TC39] proposal to
+improve datetime handling in JavaScript.
+
+Here is a quick example that shows how to parse a typical RFC 3339 instant,
+convert it to a zone aware datetime, add a span of time and losslessly print
+it:
+
+```
+use jiff::{Timestamp, ToSpan};
+
+let time: Timestamp = "2024-07-11T01:14:00Z".parse()?;
+let zoned = time.in_tz("America/New_York")?.checked_add(1.month().hours(2))?;
+assert_eq!(zoned.to_string(), "2024-08-10T23:14:00-04:00[America/New_York]");
+// Or, if you want an RFC3339 formatted string:
+assert_eq!(zoned.timestamp().to_string(), "2024-08-11T03:14:00Z");
+
+# Ok::&lt;(), Box&lt;dyn std::error::Error&gt;&gt;(())
+```
+
+[TC39]: https://tc39.es/
+[Temporal]: https://tc39.es/proposal-temporal/docs/index.html
+
+# Overview
+
+The primary type in this crate is [`Zoned`]. A `Zoned` value is a datetime that
+corresponds to a precise instant in time in a particular geographic region.
+Users of this crate may find it helpful to think of a `Zoned` as a triple of
+the following components:
+
+* A [`Timestamp`] is a 96-bit integer of nanoseconds since the [Unix epoch].
+A timestamp is a precise instant in time.
+* A [`civil::DateTime`] is an inexact calendar date and clock time. The terms
+"civil", "local", "plain" and "naive" are all used in various places to
+describe this same concept.
+* A [`tz::TimeZone`] is a set of rules for determining the civil time, via an
+offset from [UTC], in a particular geographic region.
+
+All three of these components are used to provide convenient high level
+operations on `Zoned` such as computing durations, adding durations and
+rounding.
+
+A [`Span`] is this crate's primary duration type. It mixes calendar and clock
+units into a single type. Jiff also provides [`SignedDuration`], which is like
+[`std::time::Duration`], but signed. Users should default to a `Span` for
+representing durations when using Jiff.
+
+[Unix epoch]: https://en.wikipedia.org/wiki/Unix_time
+[UTC]: https://en.wikipedia.org/wiki/Coordinated_Universal_Time
+
+The remainder of this documentation is organized as follows:
+
+* [Features](#features) gives a very brief summary of the features Jiff does
+and does not support.
+* [Usage](#usage) shows how to add Jiff to your Rust project.
+* [Examples](#examples) shows a small cookbook of programs for common tasks.
+* [Crate features](#crate-features) documents the Cargo features that can be
+enabled or disabled for this crate.
+
+Also, the `_documentation` sub-module serves to provide longer form
+documentation:
+
+* [Comparison with other Rust datetime crates](crate::_documentation::comparison)
+* [The API design rationale for Jiff](crate::_documentation::design)
+* [Platform support](crate::_documentation::platform)
+* [CHANGELOG](crate::_documentation::changelog)
+
+# Features
+
+Here is a non-exhaustive list of the things that Jiff supports:
+
+* Automatic and seamless integration with your system's copy of the
+[IANA Time Zone Database]. When a platform doesn't have a time zone database,
+Jiff automatically embeds a copy of it.
+* A separation of datetime types between absolute times ([`Timestamp`] and
+[`Zoned`]) and civil times ([`civil::DateTime`]).
+* Nanosecond precision.
+* Time zone and daylight saving time aware arithmetic.
+* The primary duration type, [`Span`], mixes calendar and clock
+units to provide an all-in-one human friendly experience that is time zone
+aware.
+* An "absolute" duration type, [`SignedDuration`], is like
+[`std::time::Duration`] but signed.
+* Datetime rounding.
+* Span rounding, including calendar units and including taking time zones into
+account.
+* Formatting and parsing datetimes via a Temporal-specified hybrid format
+that takes the best parts of [RFC 3339], [RFC 9557] and [ISO 8601]. This
+includes lossless round tripping of zone aware datetimes and durations.
+* Formatting and parsing according to [RFC 2822].
+* Formatting and parsing via routines similar to [`strftime`] and [`strptime`].
+* Formatting and parsing durations via a bespoke
+["friendly" format](crate::fmt::friendly), with Serde support, that is meant
+to service the [`humantime`](https://docs.rs/humantime) use cases.
+* Opt-in Serde integration.
+* Full support for dealing with ambiguous civil datetimes.
+* Protection against deserializing datetimes in the future with an offset
+different than what is possible with your copy of the Time Zone Database.
+(This is done via [`tz::OffsetConflict`].)
+* APIs that panic by design are clearly documented as such and few in number.
+Otherwise, all operations that can fail, including because of overflow,
+return a `Result`.
+
+Here is also a list of things that Jiff doesn't currently support, along with
+a link to a relevant issue (if one exists).
+
+* [Leap seconds]. (Jiff will automatically constrain times like `23:59:60` to
+`23:59:59`.)
+* Time scales other than Unix.
+* [Calendars other than Gregorian].
+* [Localization].
+* [Changing the representation size, precision or limits on the minimum and
+maximum datetime values.][cppchrono]
+* [Jiff aims to have reasonable performance and may not be capable of doing the
+fastest possible thing.][perf]
+
+At present, it is recommended to use the [`icu`] crate via [`jiff-icu`] for
+localization and non-Gregorian use cases.
+
+[Leap seconds]: https://github.com/BurntSushi/jiff/issues/7
+[Calendars other than Gregorian]: https://github.com/BurntSushi/jiff/issues/6
+[Localization]: https://github.com/BurntSushi/jiff/issues/4
+[cppchrono]: https://github.com/BurntSushi/jiff/issues/3
+[perf]: https://github.com/BurntSushi/jiff/issues/17
+[`icu`]: https://docs.rs/icu
+[`jiff-icu`]: https://docs.rs/jiff-icu
+
+Please file an issue if you can think of more (substantial) things to add to
+the above list.
+
+[IANA Time Zone Database]: https://en.wikipedia.org/wiki/Tz_database
+[RFC 3339]: https://www.rfc-editor.org/rfc/rfc3339
+[RFC 9557]: https://www.rfc-editor.org/rfc/rfc9557.html
+[ISO 8601]: https://www.iso.org/iso-8601-date-and-time-format.html
+
+# Usage
+
+Jiff is [on crates.io](https://crates.io/crates/jiff) and can be
+used by adding `jiff` to your dependencies in your project's `Cargo.toml`.
+Or more simply, just run `cargo add jiff`.
+
+Here is a complete example that creates a new Rust project, adds a dependency
+on `jiff`, creates the source code for a simple datetime program and then runs
+it.
+
+First, create the project in a new directory:
+
+```text
+$ cargo new jiff-example
+$ cd jiff-example
+```
+
+Second, add a dependency on `jiff`:
+
+```text
+$ cargo add jiff
+```
+
+Third, edit `src/main.rs`. Delete what's there and replace it with this:
+
+```
+use jiff::{Unit, Zoned};
+
+fn main() -&gt; Result&lt;(), jiff::Error&gt; {
+    let now = Zoned::now().round(Unit::Second)?;
+    println!("{now}");
+    Ok(())
+}
+```
+
+Fourth, run it with `cargo run`:
+
+```text
+$ cargo run
+   Compiling jiff v0.2.0 (/home/andrew/rust/jiff)
+   Compiling jiff-play v0.2.0 (/home/andrew/tmp/scratch/rust/jiff-play)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.37s
+     Running `target/debug/jiff-play`
+2024-07-10T19:54:20-04:00[America/New_York]
+```
+
+The first time you run the program will show more output like above. But
+subsequent runs shouldn't have to re-compile the dependencies.
+
+# Examples
+
+* [Get the current time in your system's time zone](#get-the-current-time-in-your-systems-time-zone)
+* [Print the current time rounded to the nearest second](#print-the-current-time-rounded-to-the-nearest-second)
+* [Print today's date at a specific time](#print-todays-date-at-a-specific-time)
+* [Print the current Unix timestamp](#print-the-current-unix-timestamp)
+* [Print the datetime for a timestamp](#print-the-datetime-for-a-timestamp)
+* [Create a zoned datetime from civil time](#create-a-zoned-datetime-from-civil-time)
+* [Change an instant from one time zone to another](#change-an-instant-from-one-time-zone-to-another)
+* [Find the duration between two zoned datetimes](#find-the-duration-between-two-zoned-datetimes)
+* [Add a duration to a zoned datetime](#add-a-duration-to-a-zoned-datetime)
+* [Dealing with ambiguity](#dealing-with-ambiguity)
+* [Parsing a span](#parsing-a-span)
+* [Parsing an RFC 2822 datetime string](#parsing-an-rfc-2822-datetime-string)
+* [Using `strftime` and `strptime` for formatting and parsing](#using-strftime-and-strptime-for-formatting-and-parsing)
+* [Serializing and deserializing integer timestamps with Serde](#serializing-and-deserializing-integer-timestamps-with-serde)
+
+### Get the current time in your system's time zone
+
+The [`Zoned::now`] returns your system's time and also attempts
+to automatically find your system's default time zone via
+[`tz::TimeZone::system`]:
+
+```
+use jiff::Zoned;
+
+let now = Zoned::now();
+println!("{now}");
+// Output: 2024-07-10T17:09:28.168146054-04:00[America/New_York]
+```
+
+### Print the current time rounded to the nearest second
+
+This uses the [`Zoned::round`] API to round a zoned datetime to the nearest
+second. This is useful, for example, if you don't care about fractional
+seconds:
+
+```
+use jiff::{Unit, Zoned};
+
+let now = Zoned::now().round(Unit::Second)?;
+println!("{now}");
+// Output: 2024-07-10T17:09:28-04:00[America/New_York]
+# Ok::&lt;(), Box&lt;dyn std::error::Error&gt;&gt;(())
+```
+
+### Print today's date at a specific time
+
+Let's say you want to get the current date at 2pm. Here's one way of doing it
+that makes use of [`Zoned::with`]:
+
+```
+use jiff::Zoned;
+
+let zdt = Zoned::now().with()
+    .hour(14)
+    .minute(0)
+    .second(0)
+    .subsec_nanosecond(0)
+    .build()?;
+println!("{zdt}");
+// Output: 2024-07-12T14:00:00-04:00[America/New_York]
+# Ok::&lt;(), Box&lt;dyn std::error::Error&gt;&gt;(())
+```
+
+Or, if the time is known to be valid, you can use the infallibe
+[`civil::time`](civil::time()) convenience constructor:
+
+```
+use jiff::{civil::time, Zoned};
+
+let zdt = Zoned::now().with().time(time(14, 0, 0, 0)).build()?;
+println!("{zdt}");
+// Output: 2024-07-12T14:00:00-04:00[America/New_York]
+# Ok::&lt;(), Box&lt;dyn std::error::Error&gt;&gt;(())
+```
+
+You can eliminate the possibility of a panic at runtime by using `time` in
+a `const` block:
+
+```
+use jiff::{civil::time, Zoned};
+
+let zdt = Zoned::now().with().time(const { time(14, 0, 0, 0) }).build()?;
+println!("{zdt}");
+// Output: 2024-07-12T14:00:00-04:00[America/New_York]
+# Ok::&lt;(), Box&lt;dyn std::error::Error&gt;&gt;(())
+```
+
+### Print the current Unix timestamp
+
+This prints a Unix timestamp as the number of seconds since the Unix epoch
+via [`Timestamp::now`]:
+
+```
+use jiff::Timestamp;
+
+let now = Timestamp::now();
+println!("{}", now.as_second());
+// Output: 1720646365
+```
+
+Or print the current timestamp to nanosecond precision (which is the maximum
+supported by Jiff):
+
+```
+use jiff::Timestamp;
+
+let now = Timestamp::now();
+println!("{}", now.as_nanosecond());
+// Output: 1720646414218901664
+```
+
+### Print the datetime for a timestamp
+
+This example shows how to convert a Unix timestamp, in milliseconds, to
+a zoned datetime in the system's current time zone. This utilizes the
+[`Timestamp::from_millisecond`] constructor, [`tz::TimeZone::system`] to get
+the default time zone and the [`Timestamp::to_zoned`] routine to convert a
+timestamp to a zoned datetime.
+
+```
+use jiff::{tz::TimeZone, Timestamp};
+
+let ts = Timestamp::from_millisecond(1_720_646_365_567)?;
+let zdt = ts.to_zoned(TimeZone::system());
+println!("{zdt}");
+// Output: 2024-07-10T17:19:25.567-04:00[America/New_York]
+// Or if you just want the RFC 3339 time without bothering with time zones:
+assert_eq!(ts.to_string(), "2024-07-10T21:19:25.567Z");
+
+# Ok::&lt;(), Box&lt;dyn std::error::Error&gt;&gt;(())
+```
+
+### Create a zoned datetime from civil time
+
+This example demonstrates the convenience constructor, [`civil::date`],
+for a [`civil::Date`]. And use the [`civil::Date::at`] method to create
+a [`civil::DateTime`]. Once we have a civil datetime, we can use
+[`civil::DateTime::in_tz`] to do a time zone lookup and convert it to a precise
+instant in time:
+
+```
+use jiff::civil::date;
+
+let zdt = date(2023, 12, 31).at(18, 30, 0, 0).in_tz("America/New_York")?;
+assert_eq!(zdt.to_string(), "2023-12-31T18:30:00-05:00[America/New_York]");
+
+# Ok::&lt;(), Box&lt;dyn std::error::Error&gt;&gt;(())
+```
+
+Note that [`civil::date`] should only be used for inputs that are known to be
+correct since it panics for an invalid date. If your date isn't known to be
+valid, then use the fallible [`civil::Date::new`] constructor.
+
+### Change an instant from one time zone to another
+
+This shows how to find the civil time, in New York, when World War 1 ended:
+
+```
+use jiff::civil::date;
+
+let zdt1 = date(1918, 11, 11).at(11, 0, 0, 0).in_tz("Europe/Paris")?;
+let zdt2 = zdt1.in_tz("America/New_York")?;
+assert_eq!(
+    zdt2.to_string(),
+    "1918-11-11T06:00:00-05:00[America/New_York]",
+);
+
+# Ok::&lt;(), Box&lt;dyn std::error::Error&gt;&gt;(())
+```
+
+### Find the duration between two zoned datetimes
+
+This shows how to compute a span between two zoned datetimes. This utilizes
+a [`Zoned`]'s implementation for `Sub`, permitting one to subtract two zoned
+datetimes via the `-` operator:
+
+```
+use jiff::civil::date;
+
+let zdt1 = date(2020, 8, 26).at(6, 27, 0, 0).in_tz("America/New_York")?;
+let zdt2 = date(2023, 12, 31).at(18, 30, 0, 0).in_tz("America/New_York")?;
+let span = &amp;zdt2 - &amp;zdt1;
+assert_eq!(format!("{span:#}"), "29341h 3m");
+
+# Ok::&lt;(), Box&lt;dyn std::error::Error&gt;&gt;(())
+```
+
+The above returns no units bigger than hours because it makes the operation
+reversible in all cases. But if you don't need reversibility (i.e., adding the
+span returned to `zdt1` gives you `zdt2`), then you can ask for bigger units
+via [`Zoned::until`] to make the span more comprehensible:
+
+```
+use jiff::{civil::date, Unit};
+
+let zdt1 = date(2020, 8, 26).at(6, 27, 0, 0).in_tz("America/New_York")?;
+let zdt2 = date(2023, 12, 31).at(18, 30, 0, 0).in_tz("America/New_York")?;
+let span = zdt1.until((Unit::Year, &amp;zdt2))?;
+assert_eq!(format!("{span:#}"), "3y 4mo 5d 12h 3m");
+
+# Ok::&lt;(), Box&lt;dyn std::error::Error&gt;&gt;(())
+```
+
+### Add a duration to a zoned datetime
+
+This example shows how one can add a [`Span`] to a [`Zoned`] via
+[`Zoned::checked_add`] to get a new `Zoned` value. We utilize the [`ToSpan`]
+trait for convenience construction of `Span` values.
+
+```
+use jiff::{civil::date, ToSpan};
+
+let zdt1 = date(2020, 8, 26).at(6, 27, 0, 0).in_tz("America/New_York")?;
+let span = 3.years().months(4).days(5).hours(12).minutes(3);
+let zdt2 = zdt1.checked_add(span)?;
+assert_eq!(zdt2.to_string(), "2023-12-31T18:30:00-05:00[America/New_York]");
+
+# Ok::&lt;(), Box&lt;dyn std::error::Error&gt;&gt;(())
+```
+
+As with [`civil::date`], the [`ToSpan`] trait should only be used with inputs
+that are known to be valid. If you aren't sure whether the inputs are valid,
+then use [`Span::new`] and its fallible mutators like [`Span::try_years`].
+
+### Dealing with ambiguity
+
+In some cases, civil datetimes either don't exist in a particular time zone or
+are repeated. By default, Jiff automatically uses the
+[`tz::Disambiguation::Compatible`] strategy for choosing an instant in all
+cases:
+
+```
+use jiff::civil::date;
+
+// 2:30 on 2024-03-10 in New York didn't exist. It's a "gap."
+// The compatible strategy selects the datetime after the gap.
+let zdt = date(2024, 3, 10).at(2, 30, 0, 0).in_tz("America/New_York")?;
+assert_eq!(zdt.to_string(), "2024-03-10T03:30:00-04:00[America/New_York]");
+
+// 1:30 on 2024-11-03 in New York appeared twice. It's a "fold."
+// The compatible strategy selects the datetime before the fold.
+let zdt = date(2024, 11, 3).at(1, 30, 0, 0).in_tz("America/New_York")?;
+assert_eq!(zdt.to_string(), "2024-11-03T01:30:00-04:00[America/New_York]");
+
+# Ok::&lt;(), Box&lt;dyn std::error::Error&gt;&gt;(())
+```
+
+For more control over disambiguation, see
+[`tz::TimeZone::to_ambiguous_zoned`]. Or
+[`fmt::temporal::DateTimeParser::disambiguation`]
+if you're parsing zoned datetimes.
+
+### Parsing a span
+
+Jiff supports parsing ISO 8601 duration strings:
+
+```
+use jiff::Span;
+
+let span: Span = "P5y1w10dT5h59m".parse()?;
+let expected = Span::new().years(5).weeks(1).days(10).hours(5).minutes(59);
+assert_eq!(span, expected.fieldwise());
+
+# Ok::&lt;(), Box&lt;dyn std::error::Error&gt;&gt;(())
+```
+
+The same format is used for serializing and deserializing `Span` values when
+the `serde` feature is enabled.
+
+Jiff also supports a bespoke ["friendly" format](crate::fmt::friendly) as
+well:
+
+```
+use jiff::Span;
+
+let expected = Span::new().years(5).weeks(1).days(10).hours(5).minutes(59);
+let span: Span = "5 years, 1 week, 10 days, 5 hours, 59 minutes".parse()?;
+assert_eq!(span, expected.fieldwise());
+let span: Span = "5yrs 1wk 10d 5hrs 59mins".parse()?;
+assert_eq!(span, expected.fieldwise());
+let span: Span = "5y 1w 10d 5h 59m".parse()?;
+assert_eq!(span, expected.fieldwise());
+
+# Ok::&lt;(), Box&lt;dyn std::error::Error&gt;&gt;(())
+```
+
+### Parsing an RFC 2822 datetime string
+
+While you probably shouldn't pick [RFC 2822] as a format for new things, it is
+sometimes necessary to use it when something else requires it (like HTTP
+or email). Parsing and printing of RFC 2822 datetimes is done via the
+[`fmt::rfc2822`] module:
+
+```
+use jiff::fmt::rfc2822;
+
+let zdt1 = rfc2822::parse("Thu, 29 Feb 2024 05:34 -0500")?;
+let zdt2 = zdt1.in_tz("Australia/Tasmania")?;
+assert_eq!(rfc2822::to_string(&amp;zdt2)?, "Thu, 29 Feb 2024 21:34:00 +1100");
+let zdt3 = zdt1.in_tz("Asia/Kolkata")?;
+assert_eq!(rfc2822::to_string(&amp;zdt3)?, "Thu, 29 Feb 2024 16:04:00 +0530");
+
+# Ok::&lt;(), Box&lt;dyn std::error::Error&gt;&gt;(())
+```
+
+[RFC 2822]: https://datatracker.ietf.org/doc/html/rfc2822
+
+### Using `strftime` and `strptime` for formatting and parsing
+
+Jiff has support for the C style [`strftime`] and [`strptime`] functions for
+formatting and parsing datetime types. All of Jiff's datetime types having a
+`strptime` constructor for parsing, and a `strftime` method for formatting.
+For example, this shows how to use [`Zoned::strptime`] to parsed a string in
+a "odd" custom format into a zoned datetime:
+
+```
+use jiff::Zoned;
+
+let zdt = Zoned::strptime(
+    "%A, %B %d, %Y at %I:%M%p %Q",
+    "Monday, July 15, 2024 at 5:30pm US/Eastern",
+)?;
+assert_eq!(zdt.to_string(), "2024-07-15T17:30:00-04:00[US/Eastern]");
+
+# Ok::&lt;(), Box&lt;dyn std::error::Error&gt;&gt;(())
+```
+
+And this shows how to use [`Zoned::strftime`] to format a zoned datetime.
+Note the use of `%Z`, which will print a time zone abbreviation (when one is
+available) instead of an offset (`%Z` can't be used for parsing):
+
+```
+use jiff::civil::date;
+
+let zdt = date(2024, 7, 15).at(17, 30, 59, 0).in_tz("Australia/Tasmania")?;
+// %-I instead of %I means no padding.
+let string = zdt.strftime("%A, %B %d, %Y at %-I:%M%P %Z").to_string();
+assert_eq!(string, "Monday, July 15, 2024 at 5:30pm AEST");
+
+# Ok::&lt;(), Box&lt;dyn std::error::Error&gt;&gt;(())
+```
+
+However, time zone abbreviations aren't parsable because they are ambiguous.
+For example, `CST` can stand for `Central Standard Time`, `Cuba Standard Time`
+or `China Standard Time`. Instead, it is recommended to use `%Q` to format an
+IANA time zone identifier (which can be parsed, as shown above):
+
+```
+use jiff::civil::date;
+
+let zdt = date(2024, 7, 15).at(17, 30, 59, 0).in_tz("Australia/Tasmania")?;
+// %-I instead of %I means no padding.
+let string = zdt.strftime("%A, %B %d, %Y at %-I:%M%P %Q").to_string();
+assert_eq!(string, "Monday, July 15, 2024 at 5:30pm Australia/Tasmania");
+
+# Ok::&lt;(), Box&lt;dyn std::error::Error&gt;&gt;(())
+```
+
+See the [`fmt::strtime`] module documentation for supported conversion
+specifiers and other APIs.
+
+[`strftime`]: https://pubs.opengroup.org/onlinepubs/009695399/functions/strftime.html
+[`strptime`]: https://pubs.opengroup.org/onlinepubs/009695399/functions/strptime.html
+
+### Serializing and deserializing integer timestamps with Serde
+
+Sometimes you need to interact with external services that use integer timestamps
+instead of something more civilized like RFC 3339. Since [`Timestamp`]'s
+Serde integration uses RFC 3339, you'll need to override the default. While
+you could hand-write this, Jiff provides convenience routines that do this
+for you. But you do need to wire it up via [Serde's `with` attribute]:
+
+```
+use jiff::Timestamp;
+
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+struct Record {
+    #[serde(with = "jiff::fmt::serde::timestamp::second::required")]
+    timestamp: Timestamp,
+}
+
+let json = r#"{"timestamp":1517644800}"#;
+let got: Record = serde_json::from_str(&amp;json)?;
+assert_eq!(got.timestamp, Timestamp::from_second(1517644800)?);
+assert_eq!(serde_json::to_string(&amp;got)?, json);
+
+# Ok::&lt;(), Box&lt;dyn std::error::Error&gt;&gt;(())
+```
+
+If you need to support optional timestamps via `Option&lt;Timestamp&gt;`, then use
+`jiff::fmt::serde::timestamp::second::optional` instead.
+
+For more, see the [`fmt::serde`] sub-module. (This requires enabling Jiff's
+`serde` crate feature.)
+
+[Serde's `with` attribute]: https://serde.rs/field-attrs.html#with
+
+# Crate features
+
+### Ecosystem features
+
+* **std** (enabled by default) -
+  When enabled, Jiff will depend on Rust's standard library. This is needed
+  for things that require interacting with your system, such as reading
+  `/usr/share/zoneinfo` on Unix systems for time zone information, or for
+  finding your system's default time zone. But if you don't need that (or can
+  bundle the Time Zone Database), then Jiff has nearly full functionality
+  without `std` enabled, excepting things like `std::error::Error` trait
+  implementations and a global time zone database (which is required for
+  things like [`Timestamp::in_tz`] to work).
+* **alloc** (enabled by default) -
+  When enabled, Jiff will depend on the `alloc` crate. In particular, this
+  enables functionality that requires or greatly benefits from dynamic memory
+  allocation. If you can enable this, it is strongly encouraged that you do so.
+  Without it, only fixed time zones are supported and error messages are
+  significantly degraded. Also, the sizes of some types get bigger. If you
+  have use cases for Jiff in a no-std and no-alloc context, I would love
+  feedback on the issue tracker about your use cases.
+* **logging** -
+  When enabled, the `log` crate is used to emit messages where appropriate.
+  Generally speaking, this is reserved for system interaction points, such as
+  finding the system copy of the Time Zone Database or finding the system's
+  default time zone.
+* **serde** -
+  When enabled, all of the datetime and span types in Jiff implement
+  serde's `Serialize` and `Deserialize` traits. The format used is specified by
+  Temporal, but it's a mix of the "best" parts of RFC 3339, RFC 9557 and
+  ISO 8601. See the [`fmt::temporal`] module for more details on the format
+  used.
+* **js** -
+  On _only_ the `wasm32-unknown-unknown` and `wasm64-unknown-unknown` targets,
+  the `js` feature will add dependencies on `js-sys` and `wasm-bindgen`.
+  These dependencies are used to determine the current datetime and time
+  zone from the web browser. On these targets without the `js` feature
+  enabled, getting the current datetime will panic (because that's what
+  `std::time::SystemTime::now()` does), and it won't be possible to determine
+  the time zone. This feature is disabled by default because not all uses
+  of `wasm{32,64}-unknown-unknown` are in a web context, although _many_ are
+  (for example, when using `wasm-pack`). Only binary, tests and benchmarks
+  should enable this feature. See
+  [Platform support](crate::_documentation::platform) for more details.
+
+### Time zone features
+
+* **tz-system** (enabled by default) -
+  When enabled, Jiff will include code that attempts to determine the "system"
+  time zone. For example, on Unix systems, this is usually determined by
+  looking at the symlink information on `/etc/localtime`. But in general, it's
+  very platform specific and heuristic oriented. On some platforms, this may
+  require extra dependencies. (For example, `windows-sys` on Windows.)
+* **tz-fat** (enabled by default) -
+  When enabled, Jiff will "fatten" time zone data with extra transitions to
+  make time zone lookups faster. This may result in increased heap memory
+  (when loading time zones from `/usr/share/zoneinfo`) or increased binary
+  size (when using the `jiff-static` proc macros). Note that this doesn't add
+  more transitions than are likely already in `/usr/share/zoneinfo`, depending
+  on how it was generated.
+* **tzdb-bundle-always** -
+  When enabled, Jiff will forcefully depend on the `jiff-tzdb` crate, which
+  embeds an entire copy of the Time Zone Database. You should avoid this unless
+  you have a specific need for it, since it is better to rely on your system's
+  copy of time zone information. (Which may be updated multiple times per
+  year.)
+* **tzdb-bundle-platform** (enabled by default) -
+  When enabled, Jiff will depend on `jiff-tzdb` only for platforms where it is
+  known that there is no canonical copy of the Time Zone Database. For example,
+  Windows.
+* **tzdb-zoneinfo** (enabled by default) -
+  When enabled, Jiff will attempt to look for your system's copy of the Time
+  Zone Database.
+* **tzdb-concatenated** (enabled by default) -
+  When enabled, Jiff will attempt to look for a system copy of the
+  [Concatenated Time Zone Database]. This is primarily meant for reading time
+  zone information on Android platforms. The `ANDROID_ROOT` and `ANDROID_DATA`
+  environment variables (with sensible default fallbacks) are used to construct
+  candidate paths to look for this database. For more on this, see the
+  [Android section of the platform support documentation](crate::_documentation::platform#android).
+* **static** -
+  When enabled, new procedural macros will be added to the `tz` sub-module for
+  creating static `TimeZone` values at compile-time. This adds a dependency on
+  [`jiff-static`] and [`jiff-tzdb`]. `jiff-static` defines the macros, and Jiff
+  re-exports them. This also enables `static-tz`.
+* **static-tz** -
+  When enabled, a `jiff::tz::include` procedural macro will become available.
+  This takes a TZif file path, like `/usr/share/zoneinfo/Israel`, as input and
+  returns a `TimeZone` value at compile time.
+
+### Performance features
+
+* **perf-inline** (enabled by default) -
+  When enabled, a number of `inline(always)` annotations are used inside of
+  Jiff to improve performance. This can especially impact formatting and
+  parsing of datetimes. If the extra performance isn't needed or if you want
+  to prioritize smaller binary sizes and shorter compilation times over
+  runtime performance, then it can be useful to disable this feature.
+
+[`jiff-static`]: https://docs.rs/jiff-static
+[`jiff-tzdb`]: https://docs.rs/jiff-tzdb
+[Concatenated Time Zone Database]: https://android.googlesource.com/platform/libcore/+/jb-mr2-release/luni/src/main/java/libcore/util/ZoneInfoDB.java
+*/
+
+</span><span class="attr">#![no_std]
+</span><span class="comment">// Lots of rustdoc links break when disabling default features because docs
+// aren't written conditionally.
+</span><span class="attr">#![cfg_attr(
+    all(
+        feature = <span class="string">"std"</span>,
+        feature = <span class="string">"serde"</span>,
+        feature = <span class="string">"static"</span>,
+        feature = <span class="string">"tzdb-zoneinfo"
+    </span>),
+    deny(rustdoc::broken_intra_doc_links)
+)]
+#![cfg_attr(
+    not(all(
+        feature = <span class="string">"std"</span>,
+        feature = <span class="string">"serde"</span>,
+        feature = <span class="string">"static"</span>,
+        feature = <span class="string">"tzdb-zoneinfo"
+    </span>)),
+    allow(rustdoc::broken_intra_doc_links)
+)]
+</span><span class="comment">// These are just too annoying to squash otherwise.
+</span><span class="attr">#![cfg_attr(
+    not(all(
+        feature = <span class="string">"std"</span>,
+        feature = <span class="string">"tzdb-zoneinfo"</span>,
+        feature = <span class="string">"tzdb-concatenated"</span>,
+        feature = <span class="string">"tz-system"</span>,
+    )),
+    allow(dead_code, unused_imports)
+)]
+</span><span class="comment">// No clue why this thing is still unstable because it's pretty amazing. This
+// adds Cargo feature annotations to items in the rustdoc output. Which is
+// sadly hugely beneficial for this crate due to the number of features.
+</span><span class="attr">#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+</span><span class="comment">// We generally want all types to impl Debug.
+</span><span class="attr">#![warn(missing_debug_implementations)]
+</span><span class="comment">// Document ALL THE THINGS!
+</span><span class="attr">#![deny(missing_docs)]
+</span><span class="comment">// See: https://github.com/rust-lang/rust/pull/121364
+</span><span class="attr">#![allow(unknown_lints, ambiguous_negative_literals)]
+</span><span class="comment">// See: https://github.com/rust-lang/rust/pull/121364
+</span><span class="attr">#![doc(test(attr(allow(unknown_lints, ambiguous_negative_literals))))]
+
+</span><span class="comment">// It should be possible to support other pointer widths, but this library
+// hasn't been tested nor thought about much in contexts with pointers less
+// than 32 bits.
+//
+// If you need support for 8-bit or 16-bit, please submit a bug report at
+// https://github.com/BurntSushi/jiff
+</span><span class="attr">#[cfg(not(any(target_pointer_width = <span class="string">"32"</span>, target_pointer_width = <span class="string">"64"</span>)))]
+</span><span class="macro">compile_error!</span>(<span class="string">"jiff currently not supported on non-{32,64}"</span>);
+
+<span class="attr">#[cfg(any(test, feature = <span class="string">"std"</span>))]
+</span><span class="kw">extern crate </span>std;
+
+<span class="attr">#[cfg(any(test, feature = <span class="string">"alloc"</span>))]
+</span><span class="kw">extern crate </span>alloc;
+
+<span class="kw">pub use crate</span>::{
+    error::Error,
+    signed_duration::{SignedDuration, SignedDurationRound},
+    span::{
+        Span, SpanArithmetic, SpanCompare, SpanFieldwise, SpanRelativeTo,
+        SpanRound, SpanTotal, ToSpan, Unit,
+    },
+    timestamp::{
+        Timestamp, TimestampArithmetic, TimestampDifference,
+        TimestampDisplayWithOffset, TimestampRound, TimestampSeries,
+    },
+    util::round::mode::RoundMode,
+    zoned::{Zoned, ZonedArithmetic, ZonedDifference, ZonedRound, ZonedWith},
+};
+
+<span class="attr">#[macro_use]
+</span><span class="kw">mod </span>logging;
+
+<span class="kw">pub mod </span>civil;
+<span class="kw">mod </span>duration;
+<span class="kw">mod </span>error;
+<span class="kw">pub mod </span>fmt;
+<span class="attr">#[cfg(feature = <span class="string">"std"</span>)]
+</span><span class="kw">mod </span>now;
+<span class="attr">#[doc(hidden)]
+</span><span class="kw">pub mod </span>shared;
+<span class="kw">mod </span>signed_duration;
+<span class="kw">mod </span>span;
+<span class="kw">mod </span>timestamp;
+<span class="kw">pub mod </span>tz;
+<span class="kw">mod </span>util;
+<span class="kw">mod </span>zoned;
+
+<span class="doccomment">/// Longer form documentation for Jiff.
+</span><span class="kw">pub mod </span>_documentation {
+    <span class="attr">#[doc = <span class="macro">include_str!</span>(<span class="string">"../COMPARE.md"</span>)]
+    </span><span class="kw">pub mod </span>comparison {}
+    <span class="attr">#[doc = <span class="macro">include_str!</span>(<span class="string">"../DESIGN.md"</span>)]
+    </span><span class="kw">pub mod </span>design {}
+    <span class="attr">#[doc = <span class="macro">include_str!</span>(<span class="string">"../PLATFORM.md"</span>)]
+    </span><span class="kw">pub mod </span>platform {}
+    <span class="attr">#[doc = <span class="macro">include_str!</span>(<span class="string">"../CHANGELOG.md"</span>)]
+    </span><span class="kw">pub mod </span>changelog {}
+}
+
+<span class="attr">#[cfg(test)]
+</span><span class="kw">mod </span>tests {
+    <span class="kw">use super</span>::<span class="kw-2">*</span>;
+
+    <span class="attr">#[cfg(feature = <span class="string">"std"</span>)]
+    #[test]
+    </span><span class="kw">fn </span>now_works() {
+        <span class="kw">let _ </span>= <span class="kw">crate</span>::logging::Logger::init();
+
+        <span class="kw">let </span>zdt = Zoned::now();
+        <span class="macro">std::println!</span>(<span class="string">"{zdt}"</span>);
+    }
+
+    <span class="attr">#[cfg(feature = <span class="string">"std"</span>)]
+    #[test]
+    </span><span class="kw">fn </span>ranges() {
+        <span class="kw">use </span><span class="kw">crate</span>::util::t;
+
+        <span class="macro">dbg!</span>((t::SpanYears::MIN, t::SpanYears::MAX));
+        <span class="macro">dbg!</span>((t::SpanMonths::MIN, t::SpanMonths::MAX));
+        <span class="macro">dbg!</span>((t::SpanWeeks::MIN, t::SpanWeeks::MAX));
+        <span class="macro">dbg!</span>((t::SpanDays::MIN, t::SpanDays::MAX));
+        <span class="macro">dbg!</span>((t::SpanHours::MIN, t::SpanHours::MAX));
+        <span class="macro">dbg!</span>((t::SpanMinutes::MIN, t::SpanMinutes::MAX));
+        <span class="macro">dbg!</span>((t::SpanSeconds::MIN, t::SpanSeconds::MAX));
+        <span class="macro">dbg!</span>((t::SpanMilliseconds::MIN, t::SpanMilliseconds::MAX));
+        <span class="macro">dbg!</span>((t::SpanMicroseconds::MIN, t::SpanMicroseconds::MAX));
+        <span class="macro">dbg!</span>((t::SpanNanoseconds::MIN, t::SpanNanoseconds::MAX));
+        <span class="macro">dbg!</span>((t::UnixSeconds::MIN, t::UnixSeconds::MAX));
+        <span class="macro">dbg!</span>((t::UnixEpochDay::MIN, t::UnixEpochDay::MAX));
+    }
+
+    <span class="attr">#[cfg(feature = <span class="string">"std"</span>)]
+    #[test]
+    </span><span class="kw">fn </span>maximally_long_span() {
+        <span class="kw">use crate</span>::{fmt::friendly, util::t};
+
+        <span class="kw">let </span>span = Span::new()
+            .years(t::SpanYears::MAX_REPR)
+            .months(t::SpanMonths::MAX_REPR)
+            .weeks(t::SpanWeeks::MAX_REPR)
+            .days(t::SpanDays::MAX_REPR)
+            .hours(t::SpanHours::MAX_REPR)
+            .minutes(t::SpanMinutes::MAX_REPR)
+            .seconds(t::SpanSeconds::MAX_REPR)
+            .milliseconds(t::SpanMilliseconds::MAX_REPR)
+            .microseconds(t::SpanMicroseconds::MAX_REPR)
+            .nanoseconds(t::SpanNanoseconds::MAX_REPR)
+            .negate();
+        <span class="macro">std::println!</span>(<span class="string">"{span}"</span>);
+        <span class="macro">std::println!</span>(<span class="string">"{span:#}"</span>);
+
+        <span class="kw">let </span>long_printer = friendly::SpanPrinter::new()
+            .designator(friendly::Designator::Verbose)
+            .spacing(friendly::Spacing::BetweenUnitsAndDesignators)
+            .comma_after_designator(<span class="bool-val">true</span>);
+        <span class="macro">std::println!</span>(<span class="string">"{}"</span>, long_printer.span_to_string(<span class="kw-2">&amp;</span>span));
+    }
+
+    <span class="attr">#[cfg(feature = <span class="string">"std"</span>)]
+    #[test]
+    </span><span class="kw">fn </span>maximally_long_duration() {
+        <span class="kw">let </span>sdur = SignedDuration::MIN;
+        <span class="macro">std::println!</span>(<span class="string">"{sdur}"</span>);
+        <span class="macro">std::println!</span>(<span class="string">"{sdur:#}"</span>);
+    }
+}
+</code></pre></div></section></main></body></html>

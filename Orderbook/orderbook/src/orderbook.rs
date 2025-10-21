@@ -1,3 +1,48 @@
+//! # Orderbook Module
+//!
+//! This module provides a comprehensive implementation of an orderbook for managing limit and market orders in an exchange.
+//!
+//! ## Features
+//! - **Order Types:** Supports [`OrderType`] variants such as GoodTillCancel, GoodForDay, FillAndKill, FillOrKill, and Market.
+//! - **Bid/Ask Management:** Uses price levels and order queues for efficient bid/ask tracking.
+//! - **Matching Engine:** Matches buy and sell orders, generating [`Trade`] records.
+//! - **Order Modification & Cancellation:** Allows modification via [`OrderModify`] and cancellation by order ID.
+//! - **Automatic Pruning:** GoodForDay orders are automatically pruned at market close.
+//! - **Thread Safety:** All operations are thread-safe using `Arc<Mutex<_>>`.
+//! - **Query Utilities:** Provides methods for querying orderbook state and trade history.
+//! - **Extensibility & Testability:** Designed for easy extension and includes comprehensive unit tests.
+//!
+//! ## Main Types
+//! - [`Orderbook`]: The main interface for interacting with the orderbook.
+//! - [`Order`]: Represents an individual order.
+//! - [`OrderType`]: Enum for order types.
+//! - [`Side`]: Enum for order side (Buy/Sell).
+//! - [`OrderModify`]: Structure for modifying existing orders.
+//! - [`Trade`]: Structure representing a matched trade.
+//! - [`OrderbookLevelInfos`]: Aggregated bid/ask level information.
+//!
+//! ## Example Usage
+//!
+//! ```rust
+//! use orderbook::{Orderbook, Order, OrderType, Side};
+//!
+//! let ob = Orderbook::new(Default::default(), Default::default());
+//! ob.add_order(Order::new(OrderType::GoodTillCancel, 1, Side::Buy, 100, 10));
+//! ob.cancel_order(1);
+//! ```
+//!
+//! ## Thread Safety
+//! All public methods on [`Orderbook`] are thread-safe.
+//!
+//! ## See Also
+//! - [`Orderbook`]
+//! - [`Order`]
+//! - [`OrderType`]
+//! - [`OrderModify`]
+//! - [`Trade`]
+//! - [`OrderbookLevelInfos`]
+//!
+
 #![allow(unused)]
 use std::{
     rc::Rc,
@@ -9,32 +54,49 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH}
 };
 use chrono::{Local, NaiveDateTime, TimeDelta, DateTime, Timelike};
+use log::{info, trace, warn, debug, error};
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+
+
+/// Represents the type of an order in the orderbook.
+/// Determines how the order is handled regarding matching, cancellation, and expiry.
+#[derive(Deserialize, Serialize, Clone, Copy, PartialEq, Debug)]
 pub enum OrderType {
-    GoodTillCancel,
+    /// Persistent order until explicitly cancelled.
+    GoodTillCancel, 
+    /// Expires automatically at the end of the trading day.
     GoodForDay,
+    /// Matches as much as possible immediately, cancels remainder.
     FillAndKill,
+    /// Only executes if it can be fully filled immediately, otherwise cancels.
     FillOrKill,
+    /// Executes at the best available price, does not specify a price.
     Market,
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
 pub enum Side {
     Buy,
     Sell,
 }
 
+/// Represents actions that can be performed on a price level's data in the orderbook.
 #[derive(Clone, Copy, PartialEq, Debug)]
-enum LevelDataAction {
+pub enum LevelDataAction {
+    /// Add quantity and count to the level.
     Add,
+    /// Remove quantity and count from the level.
     Remove,
-    Match
+    /// Match (reduce) quantity at the level.
+    Match,
 }
 
 type Price = i32;
 type Quantity = u32;
 type OrderId = u32;
+
 #[derive(Debug)]
 pub struct LevelInfo {
     pub price: Price,
@@ -59,20 +121,44 @@ impl OrderbookLevelInfos {
         &self.ask_infos
     }
 }
-#[derive(Debug)]
+
+/// A single order tracked by the order book.
+///
+/// Tracks identity, side, price, and quantity lifecycle:
+/// initial → remaining/filled, with a convenience flag `filled`.
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Order {
+    /// Limit/market/GTC classification for matching behavior.
     order_type: OrderType,
+    /// Unique identifier assigned by the client/system.
     order_id: OrderId,
+    /// Buy or Sell.
     side: Side,
+    /// Limit price. For market orders created via [`Order::new_market`], this
+    /// is initialized to a sentinel and may later be set by [`Order::to_good_till_cancel`].
     price: Price,
+    /// Quantity at creation time.
     initial_quantity: Quantity,
+    /// Shares/contracts not yet executed.
     remaining_quantity: Quantity,
+    /// Cumulative executed size.
     filled_quantity: Quantity,
+    /// Convenience flag set when `remaining_quantity == 0`.
     filled: bool,
 }
 
 impl Order {
-    //new pointer to order; will be used most of the time
+    /// Creates a new **limit** order wrapped in `Arc<Mutex<_>>`.
+    ///
+    /// # Parameters
+    /// - `order_type`: Typically `OrderType::Limit` for this constructor.
+    /// - `order_id`: Unique order identifier.
+    /// - `side`: Buy or Sell.
+    /// - `price`: Limit price.
+    /// - `quantity`: Initial total quantity.
+    ///
+    /// # Returns
+    /// A thread-safe handle to the newly created order.
     pub fn new(
         order_type: OrderType,
         order_id: OrderId,
@@ -92,12 +178,15 @@ impl Order {
         }))
     }
 
+    /// Creates a new **market** order wrapped in `Arc<Mutex<_>>`.
+    ///
+    /// Initializes `price` to a sentinel (e.g., `i32::MIN`) since market
+    /// orders are price-less until optionally converted via [`Order::to_good_till_cancel`].
     pub fn new_market(
         order_id: OrderId,
         side: Side,
         quantity: Quantity, 
     ) -> Arc<Mutex<Self>> {
-        // Use an obviously invalid price for market orders, e.g., i32::MIN
         Self::new(
             OrderType::Market,
             order_id,
@@ -107,6 +196,10 @@ impl Order {
         )
     }
 
+    /// Converts a **market** order into **good-till-cancel** with a concrete limit `price`.
+    ///
+    /// # Errors
+    /// Returns an error if the order is not currently `OrderType::Market`.
     pub fn to_good_till_cancel(&mut self, price: Price) -> Result<(), String> {
         match self.get_order_type(){
             OrderType::Market => {
@@ -118,60 +211,94 @@ impl Order {
         }
     }
 
+    /// Returns the order's unique identifier.
     pub const fn get_order_id(&self) -> OrderId {
         self.order_id
     }
+
+    /// Returns the order side.
     pub const fn get_side(&self) -> Side {
         self.side
     }
+
+    /// Returns the current limit price.
     pub const fn get_price(&self) -> Price {
         self.price
     }
+
+    /// Returns the current order type.
     pub const fn get_order_type(&self) -> OrderType {
         self.order_type
     }
+
+    /// Returns the initial quantity at creation.
     pub const fn get_initial_quantity(&self) -> Quantity {
         self.initial_quantity
     }
+
+    /// Returns the currently remaining (unfilled) quantity.
     pub const fn get_remaining_quantity(&self) -> Quantity {
         self.remaining_quantity
     }
+
+    /// Returns the cumulative filled quantity.
     pub const fn get_filled_quantity(&self) -> Quantity {
         self.filled_quantity
     }
+
+    /// Indicates whether the order is fully filled.
     pub const fn is_filled(&self) -> bool {
         self.filled
     }
 
+    /// Applies a partial or full fill to the order.
+    ///
+    /// Decrements `remaining_quantity` and increments `filled_quantity`.
+    /// Sets `filled = true` when `remaining_quantity` reaches zero.
+    ///
+    /// # Errors
+    /// Returns an error if `quantity` exceeds the current `remaining_quantity`.
     pub fn fill(&mut self, quantity: Quantity) -> Result<(), String> {
         if quantity <= self.remaining_quantity {
             self.remaining_quantity -= quantity;
             self.filled_quantity += quantity;
             if self.remaining_quantity == 0 {
                 self.filled = true;
-            }
-            println!("Filling {} by {}", self.order_id, quantity);
-            println!("Before: rem={}, filled={}", self.remaining_quantity, self.filled_quantity);   
+            }   
             Ok(())
         } else {
             Err("Order cannot be filled for more than it's remaining quantity.".to_string())
         }
     }
-
-    
 }
 
 type OrderPointer = Arc<Mutex<Order>>;
 type OrderPointers = Vec<OrderPointer>;
+
+/// Represents a request to modify an existing order.
+///
+/// `OrderModify` holds the new parameters (price, side, quantity) to
+/// be applied to an existing order identified by `order_id`.
 #[derive(Debug)]
 pub struct OrderModify {
+    /// Unique identifier of the order to be modified.
     order_id: OrderId,
+    /// New price for the order.
     price: Price,
+    /// New side (buy or sell) for the order.
     side: Side,
+    /// New total quantity for the order.
     quantity: Quantity,
 }
 
 impl OrderModify {
+    /// Creates a new `OrderModify` request.
+    ///
+    /// # Parameters
+    /// - `order_id`: The unique ID of the order to modify.
+    /// - `side`: The updated order side.
+    /// - `price`: The updated price.
+    /// - `quantity`: The updated total quantity.
     pub fn new(order_id: OrderId, side: Side, price: Price, quantity: Quantity) -> Self {
         Self {
             order_id,
@@ -181,19 +308,32 @@ impl OrderModify {
         }
     }
 
+    /// Returns the order ID targeted by this modification.
     pub const fn get_order_id(&self) -> OrderId {
         self.order_id
     }
+
+    /// Returns the updated side.
     pub const fn get_side(&self) -> Side {
         self.side
     }
+
+    /// Returns the updated price.
     pub const fn get_price(&self) -> Price {
         self.price
     }
+
+    /// Returns the updated quantity.
     pub const fn get_quantity(&self) -> Quantity {
         self.quantity
     }
 
+    /// Converts this modification into a fresh [`Order`] instance wrapped in `OrderPointer`.
+    ///
+    /// This is typically used when re-inserting the modified order into the order book.
+    ///
+    /// # Parameters
+    /// - `order_type`: The desired type for the new order (e.g., `OrderType::Limit`).
     pub fn to_order_pointer(&self, order_type: OrderType) -> OrderPointer {
         Order::new(
             order_type,
@@ -205,126 +345,455 @@ impl OrderModify {
     }
 }
 
+/// Represents one side of a trade (either bid or ask).
+///
+/// `TradeInfo` contains the order ID, execution price, and executed
+/// quantity for a single participant in a matched trade.
 #[derive(Debug, Clone, Copy)]
 pub struct TradeInfo {
+    /// Identifier of the order participating in the trade.
     pub order_id: OrderId,
+    /// Execution price for this side of the trade.
     pub price: Price,
+    /// Executed quantity for this side of the trade.
     pub quantity: Quantity,
 }
+
+/// Represents an executed trade in the order book.
+///
+/// A `Trade` pairs the buy-side (`bid_trade`) and sell-side (`ask_trade`)
+/// information that resulted in a match.
 #[derive(Debug)]
-pub struct Trade{
+pub struct Trade {
+    /// Information about the bid (buy) side of the trade.
     bid_trade: TradeInfo,
+    /// Information about the ask (sell) side of the trade.
     ask_trade: TradeInfo,
 }
 
-impl Trade{
-    pub fn new(bid_trade: TradeInfo, ask_trade: TradeInfo) -> Self{
-        Self{
+impl Trade {
+    /// Creates a new `Trade` from the given bid and ask trade information.
+    ///
+    /// # Parameters
+    /// - `bid_trade`: Information about the buy side of the trade.
+    /// - `ask_trade`: Information about the sell side of the trade.
+    pub fn new(bid_trade: TradeInfo, ask_trade: TradeInfo) -> Self {
+        Self {
             bid_trade,
             ask_trade,
         }
     }
 
+    /// Returns the `TradeInfo` for the bid (buy) side.
     pub const fn get_bid_trade(&self) -> TradeInfo {
         self.bid_trade
     }
 
+    /// Returns the `TradeInfo` for the ask (sell) side.
     pub const fn get_ask_trade(&self) -> TradeInfo {
         self.ask_trade
     }
 }
 
+
 type Trades = Vec<Trade>;
 
-///////////////////////////////////////
+
+/// Internal record used to track an order’s position in the order book.
+///
+/// `OrderEntry` stores a pointer to the order itself along with its
+/// cached location index, side, and price for quick lookup and updates.
 #[derive(Debug)]
 struct OrderEntry {
+    /// Shared, mutable pointer to the underlying order.
     order: OrderPointer,
+    /// Cached index of the order’s position in its side’s queue.
     location: usize,
+    /// Side (buy or sell) of the order.
     side: Side,
+    /// Price of the order.
     price: Price,
 }
 
+
+/// Aggregated data for a single price level in the order book.
+///
+/// `LevelData` tracks the total quantity and the number of individual
+/// orders at a given price level.
 #[derive(Debug)]
-struct LevelData{
+struct LevelData {
+    /// Total aggregated quantity at this price level.
     pub quantity: Quantity,
-    pub count: Quantity
+    /// Number of distinct orders at this price level.
+    pub count: Quantity,
 }
 
 
+
+/// Thread-safe public interface to the order book.
+///
+/// `Orderbook` is the *outer* type in the **inner–outer locking pattern**:
+/// - The **outer** type (`Orderbook`) is a thin, `pub` façade that holds
+///   an `Arc<Mutex<InnerOrderbook>>`, making it safe to clone and share
+///   across threads.
+/// - The **inner** type (`InnerOrderbook`) contains all mutable state
+///   (orders, price levels, trades, etc.) and is *not* `pub`, ensuring
+///   that all mutation goes through controlled API methods on `Orderbook`.
+///
+/// # Locking Pattern
+/// This design allows:
+/// - Multiple owners of the `Orderbook` (via `Arc`) to share the same state.
+/// - Synchronization (via `Mutex`) so that only one thread can mutate the
+///   `InnerOrderbook` at a time.
+/// - Encapsulation: callers never manipulate `InnerOrderbook` directly,
+///   reducing the risk of inconsistent state or broken invariants.
+///
+/// # Example
+/// ```
+/// let book = Orderbook::new();
+/// book.add_order(my_order); // Internally locks `inner`
+/// ```
 #[derive(Debug)]
+/// Represents the main order book structure, providing thread-safe access and management
+/// of order book state. The `Orderbook` encapsulates synchronization primitives and
+/// background thread management for pruning orders and handling shutdown signals.
+///
+/// Fields:
+/// - `inner`: Shared, mutex-protected inner state of the order book, ensuring safe concurrent access.
+/// - `orders_prune_thread`: Optional handle to a background thread responsible for pruning expired or inactive orders.
+/// - `shutdown_mutex`: Mutex used in conjunction with the condition variable to coordinate shutdown.
+/// - `shutdown_condition_variable`: Condition variable used to signal and wait for shutdown events.
+/// - `shutdown`: Atomic flag indicating whether a shutdown has been requested.
 pub struct Orderbook {
+    /// Shared, mutex-protected inner order book state (private to enforce encapsulation).
     inner: Arc<Mutex<InnerOrderbook>>,
+    orders_prune_thread: Option<JoinHandle<()>>,
+    shutdown_mutex: Arc<Mutex<()>>,
+    shutdown_condition_variable: Arc<Condvar>,
+    shutdown: AtomicBool,
 }
 
+/// Represents a thread-safe, shareable order book for managing and matching orders.
+///
+/// The `Orderbook` struct wraps an `InnerOrderbook` inside an `Arc<Mutex<_>>` to allow
+/// concurrent access and mutation from multiple threads. It provides a public API for
+/// adding, modifying, and canceling orders, as well as querying book state and depth.
+/// Optionally, it can spawn a background thread to periodically prune Good-For-Day (GFD)
+/// orders at a daily cutoff time.
+///
+/// # Fields
+/// - `inner`: Shared, mutex-protected inner order book state.
+/// - `orders_prune_thread`: Optional handle to the background pruning thread.
+/// - `shutdown_mutex`: Mutex used for coordinating shutdown of the pruning thread.
+/// - `shutdown_condition_variable`: Condition variable for waking the pruning thread.
+/// - `shutdown`: Atomic flag to signal shutdown to the pruning thread.
+///
+/// # Thread Safety
+/// All public methods lock the inner order book before mutating or reading state.
+/// The background pruning thread also locks the book when canceling GFD orders.
+///
+/// # Usage
+/// - Use [`Orderbook::new`] to create a book without background pruning.
+/// - Use [`Orderbook::build`] to create a book and launch the pruning thread.
+/// - Use [`Orderbook::add_order`], [`Orderbook::cancel_order`], and [`Orderbook::modify_order`] to interact with orders.
+/// - Use [`Orderbook::size`] and [`Orderbook::get_order_infos`] to query book state.
+///
+/// # Background Pruning
+/// If built with [`Orderbook::build`], a background thread will periodically wake up at
+/// the configured cutoff hour (default: 16:00 local time) and cancel all GFD orders.
+/// The thread can be signaled to shut down early via the `shutdown` flag and condition variable.
+/// In test mode, the pruning thread performs a single prune cycle and exits.
 impl Orderbook {
+    /// Creates a new `Orderbook` with pre-populated bid/ask maps.
+    ///
+    /// The returned outer `Orderbook` wraps an `InnerOrderbook` in `Arc<Mutex<_>>`
+    /// so the book can be shared safely across threads.
+    ///
+    /// # Parameters
+    /// - `bids`: Map of price → queue of orders on the bid side.
+    /// - `asks`: Map of price → queue of orders on the ask side.
     pub fn new(bids: BTreeMap<Price, OrderPointers>, asks: BTreeMap<Price, OrderPointers>) -> Self {
         let inner = InnerOrderbook::new(bids, asks);
         Self {
             inner: Arc::new(Mutex::new(inner)),
+            orders_prune_thread: None,
+            shutdown_mutex: Arc::new(Mutex::new(())),
+            shutdown_condition_variable: Condvar::new().into(),
+            shutdown: AtomicBool::new(false)
         }
     }
 
+    /// Builds an `Orderbook` and launches a background pruning thread.
+    ///
+    /// Spawns a thread that locks the inner book and prunes Good-For-Day (GFD) orders.
+    /// This demonstrates the inner–outer pattern: public API here, mutation inside the lock.
+    ///
+    /// # Parameters
+    /// - `bids`: Initial bid levels (price → order queue).
+    /// - `asks`: Initial ask levels (price → order queue).
+    /// - `test_mode`: If `true`, enables test-friendly pruning behavior.
+    ///
+    /// # Notes
+    /// - Stores the join handle in `orders_prune_thread` for lifecycle management.
+    /// - Locking uses `Mutex::lock().unwrap()`, which will **panic** if the mutex is poisoned.
     pub fn build(bids: BTreeMap<Price, OrderPointers>, asks: BTreeMap<Price, OrderPointers>, test_mode: bool) -> Self {
-        let mut book = Self::new(bids, asks);
-        let inner = Arc::clone(&book.inner);
+        let inner = Arc::new(Mutex::new(InnerOrderbook::new(bids, asks)));
+        
+        let shutdown_condition_variable = Arc::new(Condvar::new());
+        let shutdown_mutex = Arc::new(Mutex::new(()));
+        let shutdown = Arc::new(AtomicBool::new(false));
+
+        let mutex_clone = Arc::clone(&shutdown_mutex);
+        let inner_clone = Arc::clone(&inner);
+        let shutdown_clone = Arc::clone(&shutdown);
+        let shutdown_condition_variable_clone = Arc::clone(&shutdown_condition_variable);
+
         let handle = thread::spawn(move || {
-            let mut ob = inner.lock().unwrap();
-            ob.prune_gfd_orders(test_mode);
+            let orderbook = Orderbook {
+                inner: inner_clone,
+                orders_prune_thread: None,
+                shutdown_mutex: mutex_clone,
+                shutdown_condition_variable: shutdown_condition_variable_clone,
+                shutdown: AtomicBool::new(false),
+            };
+            orderbook.prune_gfd_orders(test_mode);
         });
-        book.inner.lock().unwrap().orders_prune_thread = Some(handle);
-        book
+
+        Self {
+            inner,
+            orders_prune_thread: Some(handle),
+            shutdown_mutex,
+            shutdown_condition_variable,
+            shutdown: AtomicBool::new(false),
+        }
     }
 
+    /// Adds an order to the book and attempts to match it.
+    ///
+    /// Internally locks the inner book, inserts the order, and runs matching logic.
+    ///
+    /// # Parameters
+    /// - `order`: Shared pointer to the order to add.
+    ///
+    /// # Returns
+    /// Any `Trades` generated by matching against the opposite side.
     pub fn add_order(&self, order: OrderPointer) -> Trades {
         self.inner.lock().unwrap().add_order(order)
     }
 
+    /// Cancels an order by ID.
+    ///
+    /// Internally locks the inner book and removes or marks the order as canceled.
+    ///
+    /// # Parameters
+    /// - `order_id`: Identifier of the order to cancel.
     pub fn cancel_order(&self, order_id: OrderId) {
         self.inner.lock().unwrap().cancel_order(order_id)
     }
 
+    /// Modifies an existing order using an `OrderModify` request.
+    ///
+    /// Internally locks the inner book, applies changes, and may requeue the order.
+    ///
+    /// # Parameters
+    /// - `order`: Modification descriptor (new price/side/quantity).
+    ///
+    /// # Returns
+    /// Any `Trades` generated if the modification triggers matching.
     pub fn modify_order(&self, order: OrderModify) -> Trades {
         self.inner.lock().unwrap().modify_order(order)
     }
 
+    /// Returns the total number of live orders in the book.
+    ///
+    /// Locks the inner book to compute the value.
     pub fn size(&self) -> usize {
         self.inner.lock().unwrap().size()
     }
 
+    /// Returns aggregated level information (depth) for both sides.
+    ///
+    /// Locks the inner book and collects `OrderbookLevelInfos`, which includes
+    /// per-price totals and counts for bids and asks.
     pub fn get_order_infos(&self) -> OrderbookLevelInfos {
         self.inner.lock().unwrap().get_order_infos()
     }
+
+    /// Background loop that cancels Good-For-Day orders at a daily cutoff.
+    ///
+    /// Computes the next cutoff (local `end_hour`), waits on a condition variable
+    /// until either the timeout or `shutdown` is signaled, and on timeout
+    /// cancels all `GoodForDay` orders. When `test_mode` is `true`, performs
+    /// a single prune cycle then exits (useful for tests).
+    fn prune_gfd_orders(&self, test_mode: bool) {
+        let end_hour = 16;
+        info!("end_hour: {}", end_hour);
+
+        if test_mode {
+            // In test mode, prune immediately and exit
+            let mut inner = self.inner.lock().unwrap();
+            info!("Pruning Orders! (test mode)");
+            let mut order_ids = vec![];
+
+            for (order_id, entry) in &inner.orders {
+                let order = entry.order.lock().unwrap();
+                if order.get_order_type() == OrderType::GoodForDay {
+                    order_ids.push(*order_id);
+                }
+            }
+
+            for id in order_ids {
+                inner.cancel_order(id);
+            }
+
+            info!("Finished pruning! test mode on");
+            return;
+        }
+        loop {
+            info!("Started Loop!");
+            let now = SystemTime::now();
+            let now_duration = now.duration_since(UNIX_EPOCH).unwrap();
+            debug!("now_duration: {:?}", now_duration);
+            let now_secs = now_duration.as_secs() as i64;
+            debug!("now_secs: {}", now_secs);
+
+            let now_parts = DateTime::from_timestamp(now_secs, 0).unwrap();
+            debug!("now_parts: {:?}", now_parts);
+            let mut date = now_parts.date_naive();
+            debug!("date: {}", date);
+            let hour = now_parts.hour();
+            debug!("hour: {}", hour);
+
+            debug!("Comparing hours!");
+            debug!("Current hour is {}, end hour is {}", hour, end_hour);
+            if hour >= end_hour {
+                date = date.succ_opt().unwrap(); // move to next day
+                debug!("Moved to next day, new date: {}", date);
+            }
+
+            let next_cutoff = date.and_hms_opt(end_hour, 0, 0).unwrap();
+            debug!("next_cutoff: {}", next_cutoff);
+            let cutoff_ts = UNIX_EPOCH + Duration::from_secs(next_cutoff.and_utc().timestamp() as u64);
+            debug!("cutoff_ts: {:?}", cutoff_ts);
+            let now_system_time = SystemTime::now();
+            debug!("now_system_time: {:?}", now_system_time);
+
+            debug!("Finding wait duration");
+            let wait_duration = cutoff_ts
+                .duration_since(now_system_time)
+                .unwrap_or(Duration::from_secs(0)) + Duration::from_millis(100);
+            debug!("wait_duration: {:?}", wait_duration);
+
+            // Use a dummy mutex for waiting on the condition variable.
+            // let dummy_mutex = Mutex::new(());
+            let guard = self.shutdown_mutex.lock().unwrap();
+            let (guard, result) = self.shutdown_condition_variable
+                .wait_timeout(guard, wait_duration)
+                .unwrap();
+
+            debug!("result.timed_out(): {}", result.timed_out());
+            debug!("self.shutdown: {}", self.shutdown.load(Ordering::Acquire));
+
+            debug!("DEBUG: About to check shutdown condition");
+            if self.shutdown.load(Ordering::Acquire) {
+                info!("Shutdown requested, exiting prune_gfd_orders.");
+                return;
+            }
+
+            debug!("DEBUG: About to check timeout condition");
+            if !result.timed_out() {
+                info!("Woke up early (not timed out), skipping pruning.");
+                continue;
+            }
+
+            debug!("DEBUG: About to start pruning logic");
+
+            // Lock the inner orderbook only for the pruning section
+            {
+                let mut inner = self.inner.lock().unwrap();
+                info!("Pruning Orders!");
+                let mut order_ids = vec![];
+
+                debug!("DEBUG: About to iterate over orders");
+                for (order_id, entry) in &inner.orders {
+                    debug!("DEBUG: Checking order {}", order_id);
+                    let order = entry.order.lock().unwrap();
+                    debug!("DEBUG: Order type: {:?}", order.get_order_type());
+                    if order.get_order_type() == OrderType::GoodForDay {
+                        info!("DEBUG: Adding GFD order {} to cancellation list", order_id);
+                        order_ids.push(*order_id);
+                    }
+                }
+
+                info!("Found {} GFD orders to cancel", order_ids.len());
+
+                for id in order_ids {
+                    info!("Canceling order with id: {}", id);
+                    inner.cancel_order(id);
+                }
+
+                info!("Orders left: {}", inner.orders.len());
+            }
+        }
+    }
 }
 
+impl Drop for Orderbook {
+    fn drop(&mut self) {
+        self.shutdown.store(true, Ordering::Release);
+        self.shutdown_condition_variable.notify_one();
+        if let Some(handle) = self.orders_prune_thread.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+
+/// Core, single-threaded state and matching engine for the order book.
+///
+/// `InnerOrderbook` is the *inner* part of the inner–outer locking pattern:
+/// external callers interact with a public `Orderbook` wrapper that holds
+/// an `Arc<Mutex<InnerOrderbook>>`. All mutation happens by locking this
+/// inner structure, preserving invariants such as price–time priority.
+///
+/// # Responsibilities
+/// - Maintain bid/ask books (`BTreeMap<Price, OrderPointers>`) ordered by price.
+/// - Track per-price aggregates in `data` (quantity, count).
+/// - Map `OrderId` → `OrderEntry` to quickly locate and update an order.
+/// - Provide matching (`match_orders`) and administrative flows (add/modify/cancel).
 #[derive(Debug)]
 pub struct InnerOrderbook {
+    /// Aggregated per-level stats used for FOK checks and level reporting.
     data: HashMap<Price, LevelData>,
+    /// Bid book: price → FIFO of orders (best bid = highest price).
     bids: BTreeMap<Price, OrderPointers>,
+    /// Ask book: price → FIFO of orders (best ask = lowest price).
     asks: BTreeMap<Price, OrderPointers>,
+    /// Fast lookup: order id → (pointer + cached location/side/price).
     orders: HashMap<OrderId, OrderEntry>,
-    orders_prune_thread: Option<JoinHandle<()>>,
-    shutdown_condition_variable: Condvar,
-    shutdown: AtomicBool,
 }
 
 impl InnerOrderbook {
+    /// Constructs a new inner order book from initial bid/ask maps.
+    ///
+    /// Typically called by the outer `Orderbook` and wrapped in `Arc<Mutex<...>>`.
     pub fn new(bids: BTreeMap<Price, OrderPointers>, asks: BTreeMap<Price, OrderPointers>) -> Self {
         Self {
             bids,
             asks,
             orders: HashMap::new(),
-            orders_prune_thread: None,
-            shutdown_condition_variable: Condvar::new(),
-            shutdown: AtomicBool::new(false),
             data: HashMap::new(),
         }
     }
 
+    /// Returns the count of live orders tracked by the book.
     pub fn size(&self) -> usize {
         self.orders.len()
     }
 
+    /// Produces aggregated depth (level infos) for bids and asks.
+    ///
+    /// Each level contains `(price, total_remaining_quantity)` gathered from the queues.
     pub fn get_order_infos(&self) -> OrderbookLevelInfos {
         let mut bid_infos: LevelInfos = Vec::with_capacity(self.orders.len());
         let mut ask_infos: LevelInfos = Vec::with_capacity(self.orders.len());
@@ -347,13 +816,25 @@ impl InnerOrderbook {
         OrderbookLevelInfos { bid_infos, ask_infos }
     }
 
+    /// Inserts an order into the book, possibly converting it and/or matching immediately.
+    ///
+    /// - Rejects duplicate `order_id`.
+    /// - Converts `Market` to `GoodTillCancel` at a worst-opposite price if the book is non-empty.
+    /// - Enforces `FillAndKill` (must be matchable now) and `FillOrKill` (must be fully fillable now).
+    /// - Appends to the correct side/price queue, updates indices, emits aggregates,
+    ///   and runs the matching loop.
+    ///
+    /// # Returns
+    /// A vector of `Trade` records generated by matching.
     pub fn add_order(&mut self, order: OrderPointer) -> Trades {
         {
             let mut ord = order.lock().unwrap();
             if self.orders.contains_key(&ord.get_order_id()){
+                warn!("InnerOrderbook: Order with id {} already exists, skipping add.", ord.get_order_id());
                 return vec![];
             }
 
+            // Convert Market → GTC at a price that ensures immediate consideration, if possible.
             if ord.get_order_type() == OrderType::Market {
                 let result = match ord.get_side() {
                     Side::Buy if !self.asks.is_empty() => {
@@ -367,6 +848,7 @@ impl InnerOrderbook {
                     _ => return vec![],
                 };
                 if result.is_err() {
+                    warn!("InnerOrderbook: Failed to convert market order to GTC: {:?}", result);
                     return vec![];
                 }
             }
@@ -375,15 +857,21 @@ impl InnerOrderbook {
             let side = ord.get_side();
             let price = ord.get_price();
             let initial_quantity = ord.get_initial_quantity();
+            let order_id = ord.get_order_id();
 
+            // F&K: must be crossable *now*
             if order_type == OrderType::FillAndKill && !self.can_match(side, price) {
+                info!("F&K Order#{} cannot match, not adding.", order_id);
                 return vec![];
             }
 
+            // FOK: must be fully fillable at current book
             if order_type == OrderType::FillOrKill && !self.can_fully_fill(side, price, initial_quantity) {
+                info!("FOK Order#{} cannot be fully filled, not adding.", order_id);
                 return vec![];
             }
 
+            // Insert to side/price queue and remember location
             let mut index: usize = 0;
             if side == Side::Buy {
                 let orders = &mut self.bids.entry(price).or_default();
@@ -394,15 +882,23 @@ impl InnerOrderbook {
                 orders.push(order.clone());
                 index = orders.len() - 1;
             }
-
+            let str_side = match side{
+                Side::Buy => "BUY",
+                Side::Sell => "SELL"
+            };
             let order_id = ord.get_order_id();
+            info!("Added {}#{} for {}/{} @ {} ({:?})", str_side, order_id, initial_quantity, initial_quantity, price, order_type);
             self.orders.insert(order_id, OrderEntry {order: order.clone(), location: index, side, price,});
         }
         self.on_order_added(order.clone());
-        self.match_orders()
+        let trades = self.match_orders();
+        if !trades.is_empty() {
+            // info!("InnerOrderbook: Trades occurred after add: {:?}", trades);
+        }
+        trades
     }
 
-
+    /// Cancels (removes) an order by ID, repairing queues and indices as needed.
     pub fn cancel_order(&mut self, order_id: OrderId) {
         if let Some(entry) = self.orders.remove(&order_id) {
             let OrderEntry { order, location, side, price } = entry;
@@ -416,6 +912,7 @@ impl InnerOrderbook {
                 let last_index = queue.len() - 1;
                 queue.swap_remove(location);
 
+                // If we swapped-in another order, update its cached index
                 if location < queue.len() {
                     let moved_order = &queue[location];
                     let moved_id = moved_order.lock().unwrap().get_order_id();
@@ -424,6 +921,7 @@ impl InnerOrderbook {
                     }
                 }
 
+                // Clean up empty price level
                 if queue.is_empty() {
                     match side {
                         Side::Buy => { self.bids.remove(&price); }
@@ -431,37 +929,53 @@ impl InnerOrderbook {
                     }
                 }
             }
-
+            
+            info!("Cancelled Order#{} at price {} side {:?}", order_id, price, side);
             self.on_order_cancelled(order.clone());
+        } else {
+            warn!("InnerOrderbook: Tried to cancel non-existent order_id {}", order_id);
         }
     }
 
-
+    /// Modifies an existing order by canceling and re-adding with new parameters.
+    ///
+    /// If the new order crosses, matching may occur immediately.
+    ///
+    /// # Returns
+    /// Any `Trades` produced by re-insertion.
     pub fn modify_order(&mut self, order: OrderModify) -> Trades {
         let order_type = self.orders.get(&order.get_order_id())
             .map(|entry| entry.order.lock().unwrap().get_order_type());
 
         if order_type.is_none() {
+            warn!("InnerOrderbook: Tried to modify non-existent order_id {}", order.get_order_id());
             return vec![];
         }
 
+        info!("InnerOrderbook: Modifying order_id {} to price {} qty {} side {:?}", order.get_order_id(), order.get_price(), order.get_quantity(), order.get_side());
         self.cancel_order(order.get_order_id());
-        self.add_order(order.to_order_pointer(order_type.unwrap()))
+        let trades = self.add_order(order.to_order_pointer(order_type.unwrap()));
+        if !trades.is_empty() {
+            info!("InnerOrderbook: Trades occurred after modify: {:?}", trades);
+        }
+        trades
     }
+
+    /// Updates per-level aggregates after adds/matches/cancels.
     fn update_level_data(&mut self, price: Price, quantity: Quantity, action: LevelDataAction) {
         let data = self.data.entry(price).or_insert(LevelData { quantity: 0, count: 0 });
 
         match action {
             LevelDataAction::Remove => {
-                data.count = data.count.saturating_sub(1);
-                data.quantity = data.quantity.saturating_sub(quantity);
+                data.count -= 1;
+                data.quantity -= quantity;
             },
             LevelDataAction::Add => {
                 data.count += 1;
                 data.quantity += quantity;
             },
             LevelDataAction::Match => {
-                data.quantity = data.quantity.saturating_sub(quantity);
+                data.quantity -= quantity;
             },
         }
 
@@ -469,23 +983,31 @@ impl InnerOrderbook {
             self.data.remove(&price);
         }
     }
+
+    /// Hook invoked on successful cancel; updates aggregates.
     fn on_order_cancelled(&mut self, order: OrderPointer){
         let ord = order.lock().unwrap();
         self.update_level_data(ord.get_price(), ord.get_initial_quantity(), LevelDataAction::Remove)
     }
+
+    /// Hook invoked on successful add; updates aggregates.
     fn on_order_added(&mut self, order: OrderPointer) {
         let ord = order.lock().unwrap();
-        self.update_level_data(ord.get_price(), ord.get_initial_quantity(), LevelDataAction::Match)
+        self.update_level_data(ord.get_price(), ord.get_initial_quantity(), LevelDataAction::Add)
     }
+
+    /// Hook invoked on each match; decrements or removes level aggregates.
     fn on_order_matched(&mut self, price: Price, quantity: Quantity, is_fully_filled: bool) {
         let action = if is_fully_filled {
             LevelDataAction::Remove
         } else {
             LevelDataAction::Match
         };
+        debug!("Order matched @ price {} qty {} fully_filled {}", price, quantity, is_fully_filled);
         self.update_level_data(price, quantity, action);
     }
 
+    /// Returns `true` if a new order on `side` at `price` would cross the book.
     fn can_match(&mut self, side: Side, price: Price) -> bool {
         match side {
             Side::Buy => self.asks.first_key_value().map_or(false, |(ask, _)| price >= *ask),
@@ -493,6 +1015,9 @@ impl InnerOrderbook {
         }
     }
 
+    /// Returns `true` if a new order can be **fully** filled immediately at/within the book.
+    ///
+    /// Used by FOK validation; walks level aggregates inside the crossable range.
     fn can_fully_fill(&mut self, side: Side, price: Price, mut quantity: Quantity) -> bool {
 
         if !self.can_match(side, price){
@@ -535,22 +1060,39 @@ impl InnerOrderbook {
         return false
     }
 
+    /// Removes an order from the side/price queue and fixes indices/maps.
     fn remove_order_from_book(&mut self, order_id: OrderId, price: Price, side: Side) {
-        let book = match side {
-            Side::Buy => &mut self.bids,
-            Side::Sell => &mut self.asks,
-        };
+        // Remove from orders map and get the entry (contains location)
+        if let Some(entry) = self.orders.remove(&order_id) {
+            let book = match side {
+                Side::Buy => &mut self.bids,
+                Side::Sell => &mut self.asks,
+            };
 
-        if let Some(queue) = book.get_mut(&price) {
-            queue.retain(|o| o.lock().unwrap().get_order_id() != order_id);
-            if queue.is_empty() {
-                book.remove(&price);
+            if let Some(queue) = book.get_mut(&price) {
+                let idx = entry.location;
+                let last_idx = queue.len() - 1;
+                queue.swap_remove(idx);
+                // If we swapped with another order, update its location in orders map
+                if idx < queue.len() {
+                    let swapped_order_id = queue[idx].lock().unwrap().get_order_id();
+                    if let Some(swapped_entry) = self.orders.get_mut(&swapped_order_id) {
+                        swapped_entry.location = idx;
+                    }
+                }
+                if queue.is_empty() {
+                    book.remove(&price);
+                }
             }
+            trace!("Removed Order#{} from book at price {} side {:?}", order_id, price, side);
         }
-
-        self.orders.remove(&order_id);
     }
 
+    /// Central matching loop.
+    ///
+    /// While best bid ≥ best ask, match head-of-queue orders at those prices,
+    /// create `Trade`s, update aggregates, and remove/repair queues for fully
+    /// filled and partially filled F&K orders.
     fn match_orders(&mut self) -> Trades {
         let mut trades = Vec::with_capacity(self.orders.len());
 
@@ -592,6 +1134,8 @@ impl InnerOrderbook {
                     break;
                 }
 
+                info!("Matching bid order_id {} and ask order_id {} for quantity {}", bid.get_order_id(), ask.get_order_id(), trade_quantity);
+
                 bid.fill(trade_quantity).ok();
                 ask.fill(trade_quantity).ok();
 
@@ -627,125 +1171,18 @@ impl InnerOrderbook {
 
             // Remove partially filled F&K orders (should not persist)
             if !bid_filled && bid_type == OrderType::FillAndKill {
+                info!("Removing partially filled F&K bid order_id {}", bid_id);
                 self.remove_order_from_book(bid_id, final_bid_price, Side::Buy);
             }
 
             if !ask_filled && ask_type == OrderType::FillAndKill {
+                info!("Removing partially filled F&K ask order_id {}", ask_id);
                 self.remove_order_from_book(ask_id, final_ask_price, Side::Sell);
             }
         }
-
         trades
     }
-
-
-    
-
-    fn prune_gfd_orders(&mut self, test_mode: bool) {
-        let end_hour = 16;
-        println!("end_hour: {}", end_hour);
-
-        loop {
-            println!("Started Loop!");
-            let now = SystemTime::now();
-            let now_duration = now.duration_since(UNIX_EPOCH).unwrap();
-            println!("now_duration: {:?}", now_duration);
-            let now_secs = now_duration.as_secs() as i64;
-            println!("now_secs: {}", now_secs);
-            
-            let now_parts = DateTime::from_timestamp(now_secs, 0).unwrap();
-            println!("now_parts: {:?}", now_parts);
-            let mut date = now_parts.date_naive();
-            println!("date: {}", date);
-            let hour = now_parts.hour();
-            println!("hour: {}", hour);
-
-            println!("Comparing hours!");
-            println!("Current hour is {}, end hour is {}", hour, end_hour);
-            if hour >= end_hour {
-                date = date.succ_opt().unwrap(); // move to next day
-                println!("Moved to next day, new date: {}", date);
-            }
-
-            let next_cutoff = date.and_hms_opt(end_hour, 0, 0).unwrap();
-            println!("next_cutoff: {}", next_cutoff);
-            let cutoff_ts = UNIX_EPOCH + Duration::from_secs(next_cutoff.and_utc().timestamp() as u64);
-            println!("cutoff_ts: {:?}", cutoff_ts);
-            let now_system_time = SystemTime::now();
-            println!("now_system_time: {:?}", now_system_time);
-            
-            println!("Finding wait duration");
-            let wait_duration = cutoff_ts
-                .duration_since(now_system_time)
-                .unwrap_or(Duration::from_secs(0)) + Duration::from_millis(100);
-            println!("wait_duration: {:?}", wait_duration);
-
-            // Use a dummy mutex for waiting on the condition variable.
-            let dummy_mutex = Mutex::new(());
-            let guard = dummy_mutex.lock().unwrap();
-            let (guard, result) = self.shutdown_condition_variable
-                .wait_timeout(guard, wait_duration)
-                .unwrap();
-            
-            println!("result.timed_out(): {}", result.timed_out());
-            println!("self.shutdown: {}", self.shutdown.load(Ordering::Acquire));
-            
-            println!("DEBUG: About to check shutdown condition");
-            if self.shutdown.load(Ordering::Acquire) {
-                println!("Shutdown requested, exiting prune_gfd_orders.");
-                return;
-            }
-
-            println!("DEBUG: About to check timeout condition");
-            if !result.timed_out() {
-                println!("Woke up early (not timed out), skipping pruning.");
-                continue;
-            }
-
-            println!("DEBUG: About to start pruning logic");
-            
-            // Pruning logic
-            println!("Pruning Orders!");
-            let mut order_ids = vec![];
-
-            println!("DEBUG: About to iterate over orders");
-            for (order_id, entry) in &self.orders {
-                println!("DEBUG: Checking order {}", order_id);
-                let order = entry.order.lock().unwrap();
-                println!("DEBUG: Order type: {:?}", order.get_order_type());
-                if order.get_order_type() == OrderType::GoodForDay {
-                    println!("DEBUG: Adding GFD order {} to cancellation list", order_id);
-                    order_ids.push(*order_id);
-                }
-            }
-            
-            println!("Found {} GFD orders to cancel", order_ids.len());
-
-            for id in order_ids {
-                println!("Canceling order with id: {}", id);
-                self.cancel_order(id);
-            }
-            
-            println!("Orders left: {}", self.orders.len());
-
-            if test_mode{
-                println!("Finished pruning! test mode on");
-                break;
-            }
-        }
-    }
 }
-impl Drop for InnerOrderbook {
-    fn drop(&mut self) {
-        self.shutdown.store(true, Ordering::Release);
-        self.shutdown_condition_variable.notify_one();
-        if let Some(handle) = self.orders_prune_thread.take() {
-            handle.join().expect("Failed to join orders_prune_thread");
-        }
-    }
-}
-        
-
 
 /// Tests:
 
