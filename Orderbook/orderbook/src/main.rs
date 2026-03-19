@@ -41,7 +41,7 @@ fn setup_logger() -> Result<(), Box<dyn std::error::Error>> {
 
 fn main() {
     setup_logger().unwrap();
-    let orderbook = Orderbook::build(BTreeMap::new(), BTreeMap::new(), true);
+    let mut orderbook  = Orderbook::new(BTreeMap::new(), BTreeMap::new());
     for i in 1..=1000 {
         let order = Order::new(
             if i % 2 == 0 { OrderType::GoodTillCancel } else { OrderType::Market },
@@ -51,7 +51,7 @@ fn main() {
             5 + (i % 10), // varying quantity
         );
         orderbook.add_order(order);
-        thread::sleep(Duration::from_millis(10));
+        
     }
 
     // Add 50 sell orders with varying prices and quantities, some will match with buys
