@@ -38,7 +38,11 @@
 
 #![allow(unused)]
 use std::{
-    cell::RefCell, collections::{BTreeMap, HashMap, btree_map::Entry}, rc::Rc, sync::{Arc, Condvar, Mutex, atomic::{AtomicBool, Ordering}}, thread::{self, JoinHandle}, time::{Duration, SystemTime, UNIX_EPOCH}
+    cell::RefCell, 
+    collections::{BTreeMap, HashMap, btree_map::Entry}, 
+    rc::Rc, sync::{Arc, Condvar, Mutex, atomic::{AtomicBool, Ordering}}, 
+    thread::{self, JoinHandle}, time::{Instant, Duration, SystemTime, UNIX_EPOCH},
+
 };
 use chrono::{Local, NaiveDateTime, TimeDelta, DateTime, Timelike};
 use log::{info, trace, warn, debug, error};
@@ -59,6 +63,11 @@ pub enum OrderType {
     FillOrKill,
     /// Executes at the best available price, does not specify a price.
     Market,
+}
+
+enum TimeInForce {
+    GTC, // good till cancel
+    GFD, // good for day / expires later
 }
 
 
@@ -131,6 +140,8 @@ pub struct Order {
     filled_quantity: Quantity,
     /// Convenience flag set when `remaining_quantity == 0`.
     filled: bool,
+    /// Order expiration (Null for GTC)
+    expiration: Option<Instant>,
 }
 
 impl Order {
@@ -152,7 +163,14 @@ impl Order {
         price: Price,
         quantity: Quantity,
     ) -> Self {
+
+        let expiration = match order_type {
+            OrderType::GoodForDay => Some(Instant::now() + Duration::from_secs(90)),
+            _ => None,
+        };
+
         Self{
+
             order_type,
             order_id,
             side,
@@ -161,6 +179,7 @@ impl Order {
             remaining_quantity: quantity,
             filled_quantity: 0,
             filled: false,
+            expiration
         }
     }
 
@@ -237,6 +256,10 @@ impl Order {
         self.filled
     }
 
+    pub fn set_expiry(&mut self, time: Instant) {
+        self.expiration = Some(time)
+    }
+
     /// Applies a partial or full fill to the order.
     ///
     /// Decrements `remaining_quantity` and increments `filled_quantity`.
@@ -259,7 +282,7 @@ impl Order {
 }
 
 // type OrderPointer = Arc<Mutex<Order>>;
-type Orders = Vec<OrderId>;
+type OrderIds = Vec<OrderId>;
 
 /// Represents a request to modify an existing order.
 ///
@@ -416,9 +439,9 @@ pub struct Orderbook {
     /// Aggregated per-level stats used for FOK checks and level reporting.
     data: HashMap<Price, LevelData>,
     /// Bid book: price → FIFO of orders (best bid = highest price).
-    bids: BTreeMap<Price, Orders>,
+    bids: BTreeMap<Price, OrderIds>,
     /// Ask book: price → FIFO of orders (best ask = lowest price).
-    asks: BTreeMap<Price, Orders>,
+    asks: BTreeMap<Price, OrderIds>,
     /// Fast lookup: order id → (pointer + cached location/side/price).
     orders: HashMap<OrderId, Order>,
 
@@ -429,7 +452,7 @@ impl Orderbook {
     /// Constructs a new inner order book from initial bid/ask maps.
     ///
     /// Typically called by the outer `Orderbook` and wrapped in `Arc<Mutex<...>>`.
-    pub fn new(bids: BTreeMap<Price, Orders>, asks: BTreeMap<Price, Orders>) -> Self {
+    pub fn new(bids: BTreeMap<Price, OrderIds>, asks: BTreeMap<Price, OrderIds>) -> Self {
         Self {
             bids,
             asks,
@@ -451,7 +474,7 @@ impl Orderbook {
         let mut bid_infos: LevelInfos = Vec::with_capacity(self.orders.len());
         let mut ask_infos: LevelInfos = Vec::with_capacity(self.orders.len());
 
-        let create_level_infos = |price: Price, order_ids: &Orders| {
+        let create_level_infos = |price: Price, order_ids: &OrderIds| {
             let total_quantity = order_ids.iter().fold(0, |sum, id| {
                 let order = self.orders.get(id).unwrap();
                 sum + order.get_remaining_quantity()
@@ -848,14 +871,55 @@ impl Orderbook {
         }
         trades
     }
-    
-}
 
+    pub fn prune_expired(&mut self) {
+        let now = Instant::now();
+        let orders = &self.orders;
+        let mut expired_ids = Vec::new();
+
+        let mut prune_side = |side: & mut BTreeMap<Price, OrderIds>| {
+            side.iter_mut().for_each(|(_, ids)| {
+                ids.retain(|id| {
+                    // Get corresponding ids in order map
+
+                    if let Some(order) = orders.get(id) {
+                        if let Some(expiry) = order.expiration {
+
+                            //add to expiry list
+                            if expiry <= now {
+                                expired_ids.push(*id);
+                                return false;
+                            }
+                        }
+                        true
+                    } else {
+                        false
+                    }
+                });
+                
+            });
+        };
+        // Prune both sides
+        prune_side(&mut self.bids);
+        prune_side(&mut self.asks);
+
+        //remove expired orders
+        for id in expired_ids {
+            self.orders.remove(&id);
+            info!("Pruning order with id {}", id); 
+        }
+
+    
+    }
+
+}
 /// Tests:
 
 //Each test implicitly assumes a working match_orders() functionality
 #[cfg(test)]
 mod test {
+    use crate::orderbook;
+
     use super::*;
 
     #[test]
@@ -980,8 +1044,49 @@ mod test {
 
     }
 
-    // #[test]
-    // fn test_good_for_day_pruning() {
+
+    #[test]
+    fn test_good_for_day_pruning() {
+
+        pub fn start_pruning_thread(book: Arc<Mutex<Orderbook>>){
+            thread::spawn(move || {
+                loop{
+                    thread::sleep(Duration::from_secs(1));
+
+                    let mut ob = book.lock().unwrap();
+                    ob.prune_expired();
+                }
+            });
+        }
+
+        let mut ob = Arc::new(Mutex::new(Orderbook::new(BTreeMap::new(),BTreeMap::new())));
+        let mut order1 = Order::new(OrderType::GoodForDay, 1, Side::Buy, 100, 10);
+        let mut order2 = Order::new(OrderType::GoodForDay, 2, Side::Buy, 100, 10);
+        let mut  order3 = Order::new(OrderType::GoodForDay, 3, Side::Buy, 100, 10);
+        
+        //make orders expire before added to book
+        order1.set_expiry(Instant::now());
+        order2.set_expiry(Instant::now());
+        order3.set_expiry(Instant::now());
+        
+        {
+        let mut book = ob.lock().unwrap();
+        book.add_order(order1);
+        book.add_order(order2);
+        book.add_order(order3);
+        }
+        
+        //prunethe expired orders
+        start_pruning_thread(ob.clone());
+
+        thread::sleep(Duration::from_secs(3));
+
+        assert_eq!(ob.lock().unwrap().size(), 0);
+        
+
+
+
+    }
     //     use chrono::Local;
     //     let now = Local::now();
     //     let minute = now.minute();
