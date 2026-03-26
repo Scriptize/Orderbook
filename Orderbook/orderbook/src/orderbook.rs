@@ -1,41 +1,3 @@
-//! # Orderbook Module
-//!
-//! This module provides a comprehensive implementation of an orderbook for managing limit and market orders in an exchange.
-//!
-//! ## Features
-//! - **Order Types:** Supports [`OrderType`] variants such as GoodTillCancel, GoodForDay, FillAndKill, FillOrKill, and Market.
-//! - **Bid/Ask Management:** Uses price levels and order queues for efficient bid/ask tracking.
-//! - **Matching Engine:** Matches buy and sell orders, generating [`Trade`] records.
-//! - **Order Modification & Cancellation:** Allows modification via [`OrderModify`] and cancellation by order ID.
-//! - **Automatic Pruning:** GoodForDay orders are automatically pruned at market close.
-//! - **Thread Safety:** All operations are thread-safe using `Arc<Mutex<_>>`.
-//! - **Query Utilities:** Provides methods for querying orderbook state and trade history.
-//! - **Extensibility & Testability:** Designed for easy extension and includes comprehensive unit tests.
-//!
-//! ## Main Types
-//! - [`Orderbook`]: The main interface for interacting with the orderbook.
-//! - [`Order`]: Represents an individual order.
-//! - [`OrderType`]: Enum for order types.
-//! - [`Side`]: Enum for order side (Buy/Sell).
-//! - [`OrderModify`]: Structure for modifying existing orders.
-//! - [`Trade`]: Structure representing a matched trade.
-//! - [`OrderbookLevelInfos`]: Aggregated bid/ask level information.
-//!
-//! ## Example Usage
-//!
-//!
-//! ## Thread Safety
-//! All public methods on [`Orderbook`] are thread-safe.
-//!
-//! ## See Also
-//! - [`Orderbook`]
-//! - [`Order`]
-//! - [`OrderType`]
-//! - [`OrderModify`]
-//! - [`Trade`]
-//! - [`OrderbookLevelInfos`]
-//!
-
 #![allow(unused)]
 use std::{
     cell::RefCell, 
@@ -63,11 +25,6 @@ pub enum OrderType {
     FillOrKill,
     /// Executes at the best available price, does not specify a price.
     Market,
-}
-
-enum TimeInForce {
-    GTC, // good till cancel
-    GFD, // good for day / expires later
 }
 
 
@@ -145,7 +102,7 @@ pub struct Order {
 }
 
 impl Order {
-    /// Creates a new **limit** order wrapped in `Arc<Mutex<_>>`.
+    /// Creates a new **limit** order
     ///
     /// # Parameters
     /// - `order_type`: Typically `OrderType::Limit` for this constructor.
@@ -155,7 +112,7 @@ impl Order {
     /// - `quantity`: Initial total quantity.
     ///
     /// # Returns
-    /// A thread-safe handle to the newly created order.
+    /// A newly created order.
     pub fn new(
         order_type: OrderType,
         order_id: OrderId,
@@ -183,8 +140,7 @@ impl Order {
         }
     }
 
-    /// Creates a new **market** order wrapped in `Arc<Mutex<_>>`.
-    ///
+
     /// Initializes `price` to a sentinel (e.g., `i32::MIN`) since market
     /// orders are price-less until optionally converted via [`Order::to_good_till_cancel`].
     pub fn new_market(
@@ -281,7 +237,6 @@ impl Order {
     }
 }
 
-// type OrderPointer = Arc<Mutex<Order>>;
 type OrderIds = Vec<OrderId>;
 
 /// Represents a request to modify an existing order.
@@ -337,8 +292,7 @@ impl OrderModify {
         self.quantity
     }
 
-    /// Converts this modification into a fresh [`Order`] instance wrapped in `OrderPointer`.
-    ///
+
     /// This is typically used when re-inserting the modified order into the order book.
     ///
     /// # Parameters
@@ -449,9 +403,7 @@ pub struct Orderbook {
 }
 
 impl Orderbook {
-    /// Constructs a new inner order book from initial bid/ask maps.
-    ///
-    /// Typically called by the outer `Orderbook` and wrapped in `Arc<Mutex<...>>`.
+    
     pub fn new(bids: BTreeMap<Price, OrderIds>, asks: BTreeMap<Price, OrderIds>) -> Self {
         Self {
             bids,
@@ -873,40 +825,25 @@ impl Orderbook {
     }
 
     pub fn prune_expired(&mut self) {
+        info!("Pruning Expired Orders...");
         let now = Instant::now();
         let orders = &self.orders;
         let mut expired_ids = Vec::new();
 
-        let mut prune_side = |side: & mut BTreeMap<Price, OrderIds>| {
-            side.iter_mut().for_each(|(_, ids)| {
-                ids.retain(|id| {
-                    // Get corresponding ids in order map
-
-                    if let Some(order) = orders.get(id) {
-                        if let Some(expiry) = order.expiration {
-
-                            //add to expiry list
-                            if expiry <= now {
-                                expired_ids.push(*id);
-                                return false;
-                            }
-                        }
-                        true
-                    } else {
-                        false
-                    }
-                });
-                
-            });
-        };
-        // Prune both sides
-        prune_side(&mut self.bids);
-        prune_side(&mut self.asks);
+        for (order_id, order) in orders {
+            if let Some(expiry) = order.expiration {
+                if expiry <= now {
+                    expired_ids.push(*order_id);
+                    
+                }
+            }
+        }
+        
 
         //remove expired orders
         for id in expired_ids {
-            self.orders.remove(&id);
-            info!("Pruning order with id {}", id); 
+            self.cancel_order(id);
+            warn!("Pruning order with id {}", id); 
         }
 
     
@@ -914,7 +851,6 @@ impl Orderbook {
 
 }
 /// Tests:
-
 //Each test implicitly assumes a working match_orders() functionality
 #[cfg(test)]
 mod test {
@@ -1044,69 +980,27 @@ mod test {
 
     }
 
-
+    
     #[test]
     fn test_good_for_day_pruning() {
+        let mut ob = Orderbook::new(BTreeMap::new(), BTreeMap::new());
 
-        pub fn start_pruning_thread(book: Arc<Mutex<Orderbook>>){
-            thread::spawn(move || {
-                loop{
-                    thread::sleep(Duration::from_secs(1));
-
-                    let mut ob = book.lock().unwrap();
-                    ob.prune_expired();
-                }
-            });
-        }
-
-        let mut ob = Arc::new(Mutex::new(Orderbook::new(BTreeMap::new(),BTreeMap::new())));
         let mut order1 = Order::new(OrderType::GoodForDay, 1, Side::Buy, 100, 10);
         let mut order2 = Order::new(OrderType::GoodForDay, 2, Side::Buy, 100, 10);
-        let mut  order3 = Order::new(OrderType::GoodForDay, 3, Side::Buy, 100, 10);
-        
-        //make orders expire before added to book
+        let mut order3 = Order::new(OrderType::GoodForDay, 3, Side::Buy, 100, 10);
+
         order1.set_expiry(Instant::now());
         order2.set_expiry(Instant::now());
         order3.set_expiry(Instant::now());
-        
-        {
-        let mut book = ob.lock().unwrap();
-        book.add_order(order1);
-        book.add_order(order2);
-        book.add_order(order3);
-        }
-        
-        //prunethe expired orders
         start_pruning_thread(ob.clone());
 
-        thread::sleep(Duration::from_secs(3));
+        ob.add_order(order1);
+        ob.add_order(order2);
+        ob.add_order(order3);
 
-        assert_eq!(ob.lock().unwrap().size(), 0);
-        
+        // directly call prune
+        ob.prune_expired();
 
-
-
+        assert_eq!(ob.size(), 0);
     }
-    //     use chrono::Local;
-    //     let now = Local::now();
-    //     let minute = now.minute();
-    //     let second = now.second();
-    //     let hour = now.hour();
-
-    //     let ob = Orderbook::build(BTreeMap::new(), BTreeMap::new(), true);
-    //     ob.add_order(Order::new(OrderType::GoodForDay, 1, Side::Buy, 100, 10));
-    //     ob.add_order(Order::new(OrderType::GoodForDay, 2, Side::Sell, 200, 10));
-    //     ob.add_order(Order::new(OrderType::GoodTillCancel, 3, Side::Sell, 1000, 10));
-
-    //     // Find time until next hour
-    //     let secs_until_next_hour = (59 - minute) * 60 + (60 - second);
-    //     if secs_until_next_hour > 180 {
-    //         // More than 3 minutes until next hour, pruning won't happen, just check size is 2
-    //         assert_eq!(ob.size(), 3);
-    //     } else {
-    //         // Within 3 minutes of next hour, pruning may happen soon
-    //         thread::sleep(std::time::Duration::from_millis(200)); // Give prune thread time to run
-    //         assert_eq!(ob.size(), 1);
-    //     }
-    // }
 }
