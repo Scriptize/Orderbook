@@ -992,7 +992,6 @@ mod test {
         order1.set_expiry(Instant::now());
         order2.set_expiry(Instant::now());
         order3.set_expiry(Instant::now());
-        start_pruning_thread(ob.clone());
 
         ob.add_order(order1);
         ob.add_order(order2);
