@@ -460,10 +460,10 @@ pub struct Orderbook {
 
 impl Orderbook {
     
-    pub fn new(bids: BTreeMap<Price, OrderIds>, asks: BTreeMap<Price, OrderIds>) -> Self {
+    pub fn new() -> Self {
         Self {
-            bids,
-            asks,
+            bids: BTreeMap::new(),
+            asks: BTreeMap::new(),
             orders: HashMap::new(),
             data: HashMap::new(),
             order_index: HashMap::new()
@@ -939,13 +939,13 @@ mod test {
 
     #[test]
     fn test_orderbook_new(){
-        let orderbook = Orderbook::new(BTreeMap::new(), BTreeMap::new());
+        let orderbook = Orderbook::new();
         assert_eq!(orderbook.size(), 0)
     }
 
     #[test]
     fn test_orderbook_add_order(){
-        let mut orderbook = Orderbook::new(BTreeMap::new(), BTreeMap::new());
+        let mut orderbook = Orderbook::new();
         orderbook.add_order(Order::new(OrderType::GoodTillCancel, 1, Side::Buy, 100, 10));
         orderbook.add_order(Order::new(OrderType::GoodTillCancel, 2, Side::Buy, 100, 10));
         orderbook.add_order(Order::new(OrderType::GoodTillCancel, 3, Side::Buy, 100, 10));
@@ -955,7 +955,7 @@ mod test {
 
     #[test]
     fn test_orderbook_cancel_order(){
-        let mut orderbook = Orderbook::new(BTreeMap::new(), BTreeMap::new());
+        let mut orderbook = Orderbook::new();
 
         orderbook.add_order(Order::new(OrderType::GoodTillCancel, 1, Side::Buy, 100, 10));
         orderbook.add_order(Order::new(OrderType::GoodTillCancel, 2, Side::Buy, 100, 10));
@@ -969,7 +969,7 @@ mod test {
 
     #[test]
     fn test_order_modify_order(){
-        let mut orderbook = Orderbook::new(BTreeMap::new(),BTreeMap::new());
+        let mut orderbook = Orderbook::new();
         orderbook.add_order(Order::new(OrderType::GoodTillCancel, 1, Side::Buy, 100, 10));
         orderbook.add_order(Order::new(OrderType::GoodTillCancel, 2, Side::Buy, 100, 10));
     
@@ -986,7 +986,7 @@ mod test {
 
     #[test]
     fn test_orderbook_will_cancel_fnk(){
-        let mut orderbook = Orderbook::new(BTreeMap::new(),BTreeMap::new());
+        let mut orderbook = Orderbook::new();
 
         // match should completely fill
         orderbook.add_order(Order::new(OrderType::GoodTillCancel, 2, Side::Sell, 100, 10));
@@ -1002,7 +1002,7 @@ mod test {
 
     #[test]
     fn test_orderbook_will_cancel_fok(){
-        let mut orderbook = Orderbook::new(BTreeMap::new(), BTreeMap::new());
+        let mut orderbook = Orderbook::new();
 
         // Add a sell order with quantity less than the FOK buy order
         orderbook.add_order(Order::new(OrderType::GoodTillCancel, 1, Side::Sell, 100, 5));
@@ -1022,8 +1022,8 @@ mod test {
 
     #[test]
     fn test_orderbook_wont_match(){
-        let mut ob1 = Orderbook::new(BTreeMap::new(),BTreeMap::new());
-        let mut ob2 = Orderbook::new(BTreeMap::new(),BTreeMap::new());
+        let mut ob1 = Orderbook::new();
+        let mut ob2 = Orderbook::new();
         
 
         //Same side
@@ -1040,7 +1040,7 @@ mod test {
 
     #[test]
     fn test_add_market_order(){
-        let mut ob = Orderbook::new(BTreeMap::new(),BTreeMap::new());
+        let mut ob = Orderbook::new();
         println!("Created orderbook!");
 
         ob.add_order(Order::new(OrderType::GoodTillCancel, 1, Side::Buy, 100, 10));
@@ -1062,7 +1062,7 @@ mod test {
     
     #[test]
     fn test_good_for_day_pruning() {
-        let mut ob = Orderbook::new(BTreeMap::new(), BTreeMap::new());
+        let mut ob = Orderbook::new();
 
         let mut order1 = Order::new(OrderType::GoodForDay, 1, Side::Buy, 100, 10);
         let mut order2 = Order::new(OrderType::GoodForDay, 2, Side::Buy, 100, 10);
