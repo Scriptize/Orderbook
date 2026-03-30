@@ -8,10 +8,12 @@ type Quantity = u32;
 enum Event {
     OrderAccepted(OrderId),
     OrderRejected(RequestError),
-    CancellationFailure(RequestError),
+    OrderModified(OrderId, OrderId),
+    CancellationFailure(OrderId, RequestError),
     TradeExecuted {
         taker_id: OrderId,
         maker_id: OrderId,
+        aggresor_side: Side
         price: Price,
         quantity: Quantity 
     },
@@ -104,8 +106,8 @@ impl Exchange {
             for trade in trades {
                 let ask_id = trade.get_ask_trade().order_id;
                 let bid_id = trade.get_bid_trade().order_id;
-                let trade_price = trade.get_ask_trade().price;
-                let trade_quantity = trade.get_ask_trade().quantity;
+                let trade_price = trade.get_trade_price();
+                let trade_quantity = trade.get_trade_quantity();
 
                 events.push(Event::TradeExecuted {
                     maker_id: if bid_id == id {
@@ -113,14 +115,18 @@ impl Exchange {
                     } else {
                         bid_id
                     },
-                    taker_id: id, 
+                    taker_id: id,
+                    aggresor_side: match id {
+                        bid_id => Side::Buy,
+                        ask_id => Side::Sell,
+                    },
                     price: trade_price,
                     quantity: trade_quantity, 
                 })
             }
 
-            for id in filled_orders {
-                events.push(Event::OrderRemoved(*id))
+            for filled_id in filled_orders {
+                events.push(Event::OrderRemoved(*filled_id))
             }
 
             events
@@ -131,7 +137,7 @@ impl Exchange {
         if self.orderbook.cancel_order(order_id) {
             events.push(Event::OrderRemoved(order_id))
         } else {
-            events.push(Event::CancellationFailure(RequestError::InvalidOrder))
+            events.push(Event::CancellationFailure(order_id, RequestError::InvalidOrder))
         }
         events
     }
@@ -140,15 +146,23 @@ impl Exchange {
         let mut events = Vec::new();
 
         // modify = cancel + add
-        let cancel_events = self.handle_cancel_order(request.id);
-        events.extend(cancel_events);
-
-        let new_order = NewOrderRequest::new(request.order_type, request.side, request.price, request.quantity);
-        match new_order {
-            Ok(req) => events.extend(self.handle_new_order(req)),
-            Err(e) => events.push(Event::OrderRejected(e)), 
-    
+        match NewOrderRequest::new(request.order_type, request.side, request.price, request.quantity) {
+            Ok(req) => {
+                events.extend(self.handle_cancel_order(request.id));
+                if let Some(Event::CancellationFailure(_, RequestError::InvalidOrder)) = events.last() {
+                    return events;
+                } else {
+                    events.extend(self.handle_new_order(req));
+                    events.push(Event::OrderModified(request.id, self.next_order_id))
+                }
+                
+            }
+            Err(e) => {
+                events.push(Event::OrderRejected(e))
+            }
         };
+
+
 
         events
     }
@@ -196,7 +210,7 @@ mod tests {
     fn test_cancel_nonexistent_order() {
         let mut exchange = create_exchange();
         let events = exchange.handle_cancel_order(999);
-        assert!(matches!(events[0], Event::CancellationFailure(RequestError::InvalidOrder)));
+        assert!(matches!(events[0], Event::CancellationFailure(999, RequestError::InvalidOrder)));
     }
 
     #[test]
