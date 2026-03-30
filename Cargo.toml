@@ -1,5 +1,5 @@
 [workspace]
 members = [
     "Orderbook/orderbook",
-    "Exchange/exchange"
-]
+    "Exchange/exchange", 
+    "Server/server"]

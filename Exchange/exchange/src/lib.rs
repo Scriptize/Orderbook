@@ -1,11 +1,11 @@
 use std::fmt;
-
+use serde::{Serialize, Deserialize};
 use orderbook::*;
 type OrderId = u32;
 type Price = i32;
 type Quantity = u32;
-
-enum Event {
+#[derive(Serialize, Clone, Copy, Debug)]
+pub enum Event {
     OrderAccepted(OrderId),
     OrderRejected(RequestError),
     CancellationFailure(RequestError),
@@ -17,8 +17,8 @@ enum Event {
     },
     OrderRemoved(OrderId),
 }
-#[derive(Debug)]
-enum RequestError {
+#[derive(Serialize, Clone, Copy, Debug)]
+pub enum RequestError {
     InvalidQuantity,
     InvalidPrice,
     InvalidOrder,
@@ -36,7 +36,7 @@ impl fmt::Display for RequestError {
 
 impl std::error::Error for RequestError {}
 
-struct NewOrderRequest {
+pub struct NewOrderRequest {
     order_type: OrderType,
     side: Side,
     price: Price,
@@ -57,7 +57,7 @@ impl NewOrderRequest {
     }
 }
 
-struct ModifyOrderRequest {
+pub struct ModifyOrderRequest {
     id: OrderId,
     order_type: OrderType,
     side: Side,
@@ -65,18 +65,24 @@ struct ModifyOrderRequest {
     quantity: Quantity,
 }
 
-enum Command{
+pub enum Command{
     NewOrder(NewOrderRequest),
     Cancel(OrderId),
     Modify(ModifyOrderRequest),
 }
 
-struct Exchange {
+pub struct Exchange {
     orderbook: Orderbook,
     next_order_id: OrderId,
 }
 
 impl Exchange {
+    pub fn new() -> Self {
+        Self {
+            orderbook: Orderbook::new(),
+            next_order_id: 1,
+        }
+    }
     fn handle_new_order(&mut self, request: NewOrderRequest) -> Vec<Event> {
         let mut events = Vec::new();
 
