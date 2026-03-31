@@ -9,11 +9,12 @@ enum Event {
     OrderAccepted(OrderId),
     OrderRejected(RequestError),
     OrderModified(OrderId, OrderId),
+    Snapshot(OrderbookLevelInfos),
     CancellationFailure(OrderId, RequestError),
     TradeExecuted {
         taker_id: OrderId,
         maker_id: OrderId,
-        aggresor_side: Side
+        aggresor_side: Side,
         price: Price,
         quantity: Quantity 
     },
@@ -173,6 +174,10 @@ impl Exchange {
             Command::Cancel(id) => { self.handle_cancel_order(id)},
             Command::Modify(request) => {self.handle_modify_order(request)},
         }
+    }
+
+    pub fn get_snapshot(&mut self) -> OrderbookLevelInfos {
+        self.orderbook.get_order_infos()
     }
 }
 
