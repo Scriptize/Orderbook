@@ -1,5 +1,6 @@
 use std::{os::windows::process, process::Command};
 
+use orderbook::OrderbookLevelInfos;
 use tokio::sync::mpsc;
 
 use exchange::*;
@@ -58,6 +59,10 @@ impl ExchangeServer {
 
     pub async fn publish_event(&self, event: Event) {
         let _ = self.event_tx.send(event).await;
+    }
+
+    pub fn get_snapshot(&self) -> OrderbookLevelInfos {
+        self.exchange.get_snapshot()
     }
 }
 

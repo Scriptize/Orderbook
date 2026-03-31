@@ -29,7 +29,9 @@ async fn main() {
             exchange.publish_event(event).await;
         }
 
-        let snapshot = exchange.
+        let snapshot = exchange.get_snapshot();
+        exchange.publish_event(Event::Snapshot(snapshot)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
         
     }
 
