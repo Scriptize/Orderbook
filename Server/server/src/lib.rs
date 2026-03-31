@@ -1,3 +1,5 @@
+use std::{os::windows::process, process::Command};
+
 use tokio::sync::mpsc;
 
 use exchange::*;
@@ -27,6 +29,7 @@ impl ExchangeServer {
     }
 
     pub async fn start(&self, addr: &str, mut rx: mpsc::Receiver<Event>) {
+        println!("Server started!");
         let listener = TcpListener::bind(addr).await.unwrap();
 
         let (stream, _) = listener.accept().await.unwrap();
@@ -47,6 +50,10 @@ impl ExchangeServer {
                 break;
             }
         }
+    }
+
+    pub fn process(& mut self, cmd: exchange::Command) -> Vec<Event> {
+        self.exchange.process(cmd)
     }
 
     pub async fn publish_event(&self, event: Event) {
