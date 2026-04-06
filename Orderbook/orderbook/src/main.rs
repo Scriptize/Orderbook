@@ -1,15 +1,14 @@
-mod orderbook;
+use orderbook::*;
 use std::{
-    rc::Rc,
-    cell::RefCell,
-    collections::{BTreeMap, HashMap}
+    cell::RefCell, collections::{BTreeMap, HashMap}, rc::Rc, time::Instant
 };
-use crate::orderbook::{Orderbook, Order, OrderType, Side};
 use log::{info, warn, error, debug, trace};
 use std::thread;
 use std::time::Duration;
 use colored::*;
 use fern::Dispatch;
+use std::sync::{Arc, Mutex};
+
 
 
 
@@ -41,32 +40,84 @@ fn setup_logger() -> Result<(), Box<dyn std::error::Error>> {
 
 fn main() {
     setup_logger().unwrap();
-    let orderbook = Orderbook::build(BTreeMap::new(), BTreeMap::new(), true);
+    let orderbook  = Orderbook::new();
+    let book = Arc::new(Mutex::new(orderbook));
+
+    // {
+    //     let ask1 = Order::new(OrderType::GoodTillCancel, 1, Side::Sell, 100, 40);
+    //     let ask2 = Order::new(OrderType::GoodTillCancel, 2, Side::Sell, 100, 60);
+    //     let buy = Order::new(OrderType::GoodTillCancel, 3, Side::Buy, 100, 100);
+
+    //     let mut  ob = book.lock().unwrap();
+    //     ob.add_order(ask1);
+    //     ob.add_order(ask2);
+    //     ob.add_order(buy);
+    // }
+
+    start_pruning_thread(book.clone());
+
+    for i in 2001..=2010 {
+        let mut order = Order::new(
+            OrderType::GoodForDay,
+            i,
+            Side::Buy,
+            50u64.try_into().unwrap(),
+            1000 + (i % 100) * 100,
+        );
+        order.set_expiry(Instant::now() + Duration::from_secs(5));
+
+        {
+            let mut ob = book.lock().unwrap();
+            ob.add_order(order);
+        }
+        
+    }
+    
     for i in 1..=1000 {
-        let order = Order::new(
+        let mut order = Order::new(
             if i % 2 == 0 { OrderType::GoodTillCancel } else { OrderType::Market },
             i,
             if i%100 == 0 {Side::Sell} else {Side::Buy},
             (100 + i as u64).try_into().unwrap(), // price increases with i
             5 + (i % 10), // varying quantity
         );
-        orderbook.add_order(order);
-        thread::sleep(Duration::from_millis(10));
+        {
+            let mut ob = book.lock().unwrap();
+            ob.add_order(order);
+        }
+        
     }
 
-    // Add 50 sell orders with varying prices and quantities, some will match with buys
     for i in 1001..=2000 {
-        let order = Order::new(
+    
+        let mut order = Order::new(
             if i % 2 == 0 { OrderType::GoodTillCancel } else { OrderType::FillOrKill },
             i,
             Side::Sell,
             (110 - (i % 20) as u64).try_into().unwrap(), // price decreases with i, some overlap with buys
             3 + (i % 7), // varying quantity
+            
         );
-        orderbook.add_order(order);
+        {
+            let mut ob = book.lock().unwrap();
+            ob.add_order(order);
+        }
+        
         thread::sleep(Duration::from_millis(10));
+    
     }
 
     println!("Main thread complete.");
+    
 }
 
+pub fn start_pruning_thread(book: Arc<Mutex<Orderbook>>){
+            thread::spawn(move || {
+                loop{
+                    thread::sleep(Duration::from_secs(1));
+
+                    let mut ob = book.lock().unwrap();
+                    ob.prune_expired();
+                }
+            });
+        }
