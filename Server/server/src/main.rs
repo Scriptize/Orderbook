@@ -1,70 +1,79 @@
-use exchange::NewOrderRequest;
-use exchange::Command;
-use server::ExchangeServer;
-use orderbook::OrderType;
-use exchange::Exchange;
-use orderbook::Side;
-use exchange::Event;
+// src/main.rs
 
+use std::sync::{Arc, Mutex};
+
+use exchange::{Command, Exchange, NewOrderRequest};
+use orderbook::{OrderType, Side};
+use server::ExchangeServer;
+use rand::{Rng, SeedableRng};
+use rand::rngs::SmallRng;
 
 #[tokio::main]
 async fn main() {
     let localhost = "127.0.0.1:9001";
 
-    let (server, rx) = ExchangeServer::new();
+    let exchange = Arc::new(Mutex::new(Exchange::new()));
+    let server = ExchangeServer::new(exchange.clone());
 
-    // server runs independently (NO LOCK)
     let tx = server.event_tx.clone();
+    let server_count = server.client_count.clone();
 
     tokio::spawn(async move {
-        server.start(localhost, rx).await;
+        server.start(localhost).await;
     });
 
-    let mut exchange = Exchange::new();
-    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-    for i in 0..100 {
-        let order_type = if i % 3 == 0 {
-            OrderType::GoodTillCancel
-        } else {
-            OrderType::FillOrKill
-        };
+    while server_count.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    }
+    
+    
+    tokio::spawn({
+        let exchange = exchange.clone();
+        let tx = tx.clone();
 
-        let side = if i % 2 == 0 { Side::Buy } else { Side::Sell };
+        async move {
+            use rand::Rng;
 
-        match i % 4 {
-            0 => {
-                // New order
-                let oreq = NewOrderRequest::new(order_type, side, 100, 100 + i as u32)
-                    .unwrap();
-                let ocmd = Command::NewOrder(oreq);
-                let events = exchange.process(ocmd);
+            let mut rng = SmallRng::from_entropy();;
+            let mid = 1000;
+            let levels = 50;
+
+            for _ in 0..1000 {
+                let is_bid = rng.gen_bool(0.5);
+
+                let level = rng.gen_range(0..levels);
+                let quantity = ((level + 1) * 10) as u32;
+
+                let price = if is_bid {
+                    mid - level as i32
+                } else {
+                    mid + 1 + level as i32
+                };
+
+                let side = if is_bid { Side::Buy } else { Side::Sell };
+
+                let events = {
+                    let mut ex = exchange.lock().unwrap();
+                    let req = NewOrderRequest::new(
+                        OrderType::GoodTillCancel,
+                        side,
+                        price,
+                        quantity,
+                    ).unwrap();
+
+                    ex.process(Command::NewOrder(req))
+                };
+
                 for event in events {
-                    let _ = tx.send(event).await;
+                    let _ = tx.send(event);
                 }
-            }
-            1 => {
-                // Cancel order
-                let ocmd = Command::Cancel(i as u32);
-                let events = exchange.process(ocmd);
-                for event in events {
-                    let _ = tx.send(event).await;
-                }
-            }
-            _ => {
-                // New order with varied parameters
-                let oreq = NewOrderRequest::new(order_type, side, 50 + i as i32, 100)
-                    .unwrap();
-                let ocmd = Command::NewOrder(oreq);
-                let events = exchange.process(ocmd);
-                for event in events {
-                    let _ = tx.send(event).await;
-                }
+
+                let delay = rng.gen_range(5..30);
+                tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
             }
         }
+    });
 
-        let snapshot = exchange.get_snapshot();
-        let _ = tx.send(Event::Snapshot(snapshot)).await;
-
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-    }
+    println!("seeded orderbook, server still running");
+    tokio::signal::ctrl_c().await.unwrap();
 }
