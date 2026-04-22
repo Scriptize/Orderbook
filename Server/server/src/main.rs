@@ -1,9 +1,5 @@
-// src/main.rs
-
-use std::sync::{Arc, Mutex};
-
-use exchange::{Command, Exchange, NewOrderRequest};
-use orderbook::{OrderType, Side};
+use exchange::NewOrderRequest;
+use exchange::Command;
 use server::ExchangeServer;
 use rand::{Rng, SeedableRng};
 use rand::rngs::SmallRng;
@@ -39,16 +35,8 @@ async fn main() {
     let exchange = Arc::new(Mutex::new(Exchange::new()));
     let server = ExchangeServer::new(exchange.clone());
 
-    let tx = server.event_tx.clone();
-    let server_count = server.client_count.clone();
 
-    tokio::spawn(async move {
-        server.start(localhost).await;
-    });
-
-    while server_count.load(std::sync::atomic::Ordering::SeqCst) == 0 {
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-    }
+    exchange.start(localhost, rx).await;
     
     
     tokio::spawn({
@@ -112,8 +100,12 @@ async fn main() {
                 tokio::time::sleep(tokio::time::Duration::from_millis(350)).await;
             }
         }
-    });
 
-    println!("seeded orderbook, server still running");
-    tokio::signal::ctrl_c().await.unwrap();
+        let snapshot = exchange.get_snapshot();
+        exchange.publish_event(Event::Snapshot(snapshot)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        
+    }
+
+    
 }
