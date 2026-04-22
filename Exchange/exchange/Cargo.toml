@@ -5,3 +5,4 @@ edition = "2021"
 
 [dependencies]
 orderbook = { path = "../../Orderbook/orderbook" }
+serde = { version = "1.0", features = ["derive"] }
