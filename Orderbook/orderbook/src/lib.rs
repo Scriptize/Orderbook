@@ -69,6 +69,7 @@ pub enum LevelDataAction {
 type Price = i32;
 type Quantity = u32;
 type OrderId = u32;
+type ActorId = u32;
 
 #[derive(Debug)]
 pub struct LevelInfo {
@@ -101,6 +102,8 @@ impl OrderbookLevelInfos {
 /// initial → remaining/filled, with a convenience flag `filled`.
 #[derive(Debug)]
 pub struct Order {
+    ///Order Owner
+    actor_id: ActorId,
     /// Limit/market/GTC classification for matching behavior.
     order_type: OrderType,
     /// Unique identifier assigned by the client/system.
@@ -135,6 +138,7 @@ impl Order {
     /// # Returns
     /// A newly created order.
     pub fn new(
+        actor_id: ActorId,
         order_type: OrderType,
         order_id: OrderId,
         side: Side,
@@ -148,7 +152,7 @@ impl Order {
         };
 
         Self{
-
+            actor_id,
             order_type,
             order_id,
             side,
@@ -165,11 +169,13 @@ impl Order {
     /// Initializes `price` to a sentinel (e.g., `i32::MIN`) since market
     /// orders are price-less until optionally converted via [`Order::to_good_till_cancel`].
     pub fn new_market(
+        actor_id: ActorId,
         order_id: OrderId,
         side: Side,
         quantity: Quantity, 
     ) -> Self {
         Self::new(
+            actor_id,
             OrderType::Market,
             order_id,
             side,
@@ -266,6 +272,8 @@ type OrderIds = Vec<OrderId>;
 /// be applied to an existing order identified by `order_id`.
 #[derive(Debug)]
 pub struct OrderModify {
+    ///Order Owner
+    actor_id: ActorId,
     /// Unique identifier of the order to be modified.
     order_id: OrderId,
     /// New price for the order.
@@ -284,8 +292,9 @@ impl OrderModify {
     /// - `side`: The updated order side.
     /// - `price`: The updated price.
     /// - `quantity`: The updated total quantity.
-    pub fn new(order_id: OrderId, side: Side, price: Price, quantity: Quantity) -> Self {
+    pub fn new(actor_id: ActorId, order_id: OrderId, side: Side, price: Price, quantity: Quantity) -> Self {
         Self {
+            actor_id,
             order_id,
             side,
             price,
@@ -293,6 +302,9 @@ impl OrderModify {
         }
     }
 
+    pub const fn get_actor_id(&self) -> ActorId {
+        self.actor_id
+    }
     /// Returns the order ID targeted by this modification.
     pub const fn get_order_id(&self) -> OrderId {
         self.order_id
@@ -320,6 +332,7 @@ impl OrderModify {
     /// - `order_type`: The desired type for the new order (e.g., `OrderType::Limit`).
     pub fn to_order(&self, order_type: OrderType) -> Order {
         Order::new(
+            self.get_actor_id(),
             order_type,
             self.get_order_id(),
             self.get_side(),
@@ -355,6 +368,8 @@ pub struct Trade {
     bid_trade: TradeInfo,
     /// Information about the ask (sell) side of the trade.
     ask_trade: TradeInfo,
+    bidder_id: ActorId,
+    asker_id: ActorId,
 }
 
 impl Trade {
@@ -363,12 +378,14 @@ impl Trade {
     /// # Parameters
     /// - `bid_trade`: Information about the buy side of the trade.
     /// - `ask_trade`: Information about the sell side of the trade.
-    pub fn new(trade_price: Price, trade_quantity: Quantity, bid_trade: TradeInfo, ask_trade: TradeInfo) -> Self {
+    pub fn new(trade_price: Price, trade_quantity: Quantity, bid_trade: TradeInfo, ask_trade: TradeInfo, bidder_id: ActorId, asker_id: ActorId) -> Self {
         Self {
             trade_price,
             trade_quantity,
             bid_trade,
             ask_trade,
+            bidder_id,
+            asker_id,
         }
     }
 
@@ -389,6 +406,14 @@ impl Trade {
     pub const fn get_trade_quantity(&self) -> Quantity {
         self.trade_quantity
     }
+
+    pub const fn get_bidder_id(&self) -> ActorId {
+        self.bidder_id
+    }
+
+    pub const fn get_asker_id(&self) -> ActorId {
+        self.asker_id
+    }
 }
 
 
@@ -396,7 +421,7 @@ type Trades = Vec<Trade>;
 
 pub struct MatchResult {
     trades: Trades,
-    filled_orders: OrderIds,
+    filled_orders: Vec<(OrderId, ActorId)>,
 }
 
 impl MatchResult {
@@ -411,7 +436,7 @@ impl MatchResult {
         &self.trades
     }
 
-    pub fn get_filled_orders(&self) -> &OrderIds {
+    pub fn get_filled_orders(&self) -> &Vec<(OrderId, ActorId)> {
         &self.filled_orders
     }
 
@@ -814,7 +839,7 @@ impl Orderbook {
             
 
            // --- READ ONLY FIRST ---
-            let (bid_remaining, ask_remaining, bid_type, ask_type);
+            let (bid_remaining, ask_remaining, bid_type, ask_type, bid_actor_id, ask_actor_id);
 
             {
                 let mut bid = self.orders.get(&bid_id).unwrap();
@@ -825,6 +850,9 @@ impl Orderbook {
 
                 bid_type = bid.get_order_type();
                 ask_type = ask.get_order_type();
+
+                bid_actor_id = bid.actor_id;
+                ask_actor_id = ask.actor_id;
 
             }
                 
@@ -868,6 +896,8 @@ impl Orderbook {
                         price: ask_price, 
                         quantity: trade_quantity 
                     },
+                bid_actor_id,
+                ask_actor_id,
             ));
 
             self.on_order_matched(bid_price, trade_quantity, bid_filled);
@@ -877,13 +907,13 @@ impl Orderbook {
 
             // --- REMOVE FILLED ---
             if bid_filled {
-                filled_orders.push(bid_id);
+                filled_orders.push((bid_id, bid_actor_id));
                 info!("Bid Order #{} filled; removing from book...", bid_id);
                 self.remove_order_from_book(bid_id, bid_price, Side::Buy);
             }
 
             if ask_filled {
-                filled_orders.push(ask_id);
+                filled_orders.push((ask_id, ask_actor_id));
                 info!("Ask Order #{} filled; removing from book...", ask_id);
                 self.remove_order_from_book(ask_id, ask_price, Side::Sell);
             }
@@ -946,9 +976,9 @@ mod test {
     #[test]
     fn test_orderbook_add_order(){
         let mut orderbook = Orderbook::new();
-        orderbook.add_order(Order::new(OrderType::GoodTillCancel, 1, Side::Buy, 100, 10));
-        orderbook.add_order(Order::new(OrderType::GoodTillCancel, 2, Side::Buy, 100, 10));
-        orderbook.add_order(Order::new(OrderType::GoodTillCancel, 3, Side::Buy, 100, 10));
+        orderbook.add_order(Order::new(0, OrderType::GoodTillCancel, 1, Side::Buy, 100, 10));
+        orderbook.add_order(Order::new(0, OrderType::GoodTillCancel, 2, Side::Buy, 100, 10));
+        orderbook.add_order(Order::new(0, OrderType::GoodTillCancel, 3, Side::Buy, 100, 10));
         
         assert_eq!(orderbook.size(), 3);
     }
@@ -957,9 +987,9 @@ mod test {
     fn test_orderbook_cancel_order(){
         let mut orderbook = Orderbook::new();
 
-        orderbook.add_order(Order::new(OrderType::GoodTillCancel, 1, Side::Buy, 100, 10));
-        orderbook.add_order(Order::new(OrderType::GoodTillCancel, 2, Side::Buy, 100, 10));
-        orderbook.add_order(Order::new(OrderType::GoodTillCancel, 3, Side::Buy, 100, 10));
+        orderbook.add_order(Order::new(0, OrderType::GoodTillCancel, 1, Side::Buy, 100, 10));
+        orderbook.add_order(Order::new(0, OrderType::GoodTillCancel, 2, Side::Buy, 100, 10));
+        orderbook.add_order(Order::new(0, OrderType::GoodTillCancel, 3, Side::Buy, 100, 10));
         orderbook.cancel_order(1);
         orderbook.cancel_order(2);
         orderbook.cancel_order(3);
@@ -970,12 +1000,12 @@ mod test {
     #[test]
     fn test_order_modify_order(){
         let mut orderbook = Orderbook::new();
-        orderbook.add_order(Order::new(OrderType::GoodTillCancel, 1, Side::Buy, 100, 10));
-        orderbook.add_order(Order::new(OrderType::GoodTillCancel, 2, Side::Buy, 100, 10));
+        orderbook.add_order(Order::new(0, OrderType::GoodTillCancel, 1, Side::Buy, 100, 10));
+        orderbook.add_order(Order::new(0, OrderType::GoodTillCancel, 2, Side::Buy, 100, 10));
     
 
         //create modification
-        let order_mod = OrderModify::new(2, Side::Sell, 100, 10);
+        let order_mod = OrderModify::new(0, 2, Side::Sell, 100, 10);
 
         //should match and fill order with id 1
         orderbook.modify_order(order_mod);
@@ -989,13 +1019,13 @@ mod test {
         let mut orderbook = Orderbook::new();
 
         // match should completely fill
-        orderbook.add_order(Order::new(OrderType::GoodTillCancel, 2, Side::Sell, 100, 10));
-        orderbook.add_order(Order::new(OrderType::FillAndKill, 1, Side::Buy, 100, 10));
+        orderbook.add_order(Order::new(0, OrderType::GoodTillCancel, 2, Side::Sell, 100, 10));
+        orderbook.add_order(Order::new(0, OrderType::FillAndKill, 1, Side::Buy, 100, 10));
         
         
         //Unmatched F&K (should cancel)
-        orderbook.add_order(Order::new(OrderType::GoodTillCancel, 3, Side:: Buy, 250, 5));
-        orderbook.add_order(Order::new(OrderType::FillAndKill, 4, Side::Buy, 100, 10));
+        orderbook.add_order(Order::new(0, OrderType::GoodTillCancel, 3, Side:: Buy, 250, 5));
+        orderbook.add_order(Order::new(0, OrderType::FillAndKill, 4, Side::Buy, 100, 10));
 
         assert_eq!(orderbook.size(), 1);
     }
@@ -1005,17 +1035,17 @@ mod test {
         let mut orderbook = Orderbook::new();
 
         // Add a sell order with quantity less than the FOK buy order
-        orderbook.add_order(Order::new(OrderType::GoodTillCancel, 1, Side::Sell, 100, 5));
+        orderbook.add_order(Order::new(0, OrderType::GoodTillCancel, 1, Side::Sell, 100, 5));
 
         // Try to add a FOK buy order that requires more quantity than available (should not be added)
-        orderbook.add_order(Order::new(OrderType::FillOrKill, 2, Side::Buy, 100, 10));
+        orderbook.add_order(Order::new(0, OrderType::FillOrKill, 2, Side::Buy, 100, 10));
         assert_eq!(orderbook.size(), 1);
 
         // Now add enough sell quantity to fill the FOK order
-        orderbook.add_order(Order::new(OrderType::GoodTillCancel, 3, Side::Sell, 100, 10));
+        orderbook.add_order(Order::new(0, OrderType::GoodTillCancel, 3, Side::Sell, 100, 10));
 
         // Add a FOK buy order that can be fully filled (should match and remove both)
-        orderbook.add_order(Order::new(OrderType::FillOrKill, 4, Side::Buy, 100, 10));
+        orderbook.add_order(Order::new(0, OrderType::FillOrKill, 4, Side::Buy, 100, 10));
         println!("{:#?}", orderbook);
         assert_eq!(orderbook.size(), 1);
     }
@@ -1027,12 +1057,12 @@ mod test {
         
 
         //Same side
-        ob1.add_order(Order::new(OrderType::GoodTillCancel, 1, Side::Buy, 1, 1));
-        ob1.add_order(Order::new(OrderType::GoodTillCancel, 2, Side::Buy, 1, 1));
+        ob1.add_order(Order::new(0,OrderType::GoodTillCancel, 1, Side::Buy, 1, 1));
+        ob1.add_order(Order::new(0, OrderType::GoodTillCancel, 2, Side::Buy, 1, 1));
 
         //Ask higher than bid
-        ob2.add_order(Order::new(OrderType::GoodTillCancel, 1, Side::Buy, 1, 1));
-        ob2.add_order(Order::new(OrderType::GoodTillCancel, 2, Side::Sell, 2, 1));
+        ob2.add_order(Order::new(0, OrderType::GoodTillCancel, 1, Side::Buy, 1, 1));
+        ob2.add_order(Order::new(0, OrderType::GoodTillCancel, 2, Side::Sell, 2, 1));
         
         assert_eq!(ob1.size(), ob2.size());
 
@@ -1043,14 +1073,14 @@ mod test {
         let mut ob = Orderbook::new();
         println!("Created orderbook!");
 
-        ob.add_order(Order::new(OrderType::GoodTillCancel, 1, Side::Buy, 100, 10));
-        ob.add_order(Order::new(OrderType::GoodTillCancel, 2, Side::Buy, 150, 10));
+        ob.add_order(Order::new(0, OrderType::GoodTillCancel, 1, Side::Buy, 100, 10));
+        ob.add_order(Order::new(0, OrderType::GoodTillCancel, 2, Side::Buy, 150, 10));
         // No orders can match
-        ob.add_order(Order::new(OrderType::GoodTillCancel, 3, Side::Sell, 200, 10));
-        ob.add_order(Order::new(OrderType::GoodTillCancel, 4, Side::Sell, 300, 10));
+        ob.add_order(Order::new(0, OrderType::GoodTillCancel, 3, Side::Sell, 200, 10));
+        ob.add_order(Order::new(0, OrderType::GoodTillCancel, 4, Side::Sell, 300, 10));
         println!("Added incompatible orders!");
         // Will match worst sell order (300); asks should be left with 1 
-        ob.add_order(Order::new_market(5, Side::Buy, 10));
+        ob.add_order(Order::new_market(0, 5, Side::Buy, 10));
         println!("Added market order!");
         let level_infos = ob.get_order_infos();
         let asks = level_infos.get_asks();
@@ -1064,9 +1094,9 @@ mod test {
     fn test_good_for_day_pruning() {
         let mut ob = Orderbook::new();
 
-        let mut order1 = Order::new(OrderType::GoodForDay, 1, Side::Buy, 100, 10);
-        let mut order2 = Order::new(OrderType::GoodForDay, 2, Side::Buy, 100, 10);
-        let mut order3 = Order::new(OrderType::GoodForDay, 3, Side::Buy, 100, 10);
+        let mut order1 = Order::new(0, OrderType::GoodForDay, 1, Side::Buy, 100, 10);
+        let mut order2 = Order::new(0, OrderType::GoodForDay, 2, Side::Buy, 100, 10);
+        let mut order3 = Order::new(0, OrderType::GoodForDay, 3, Side::Buy, 100, 10);
 
         order1.set_expiry(Instant::now());
         order2.set_expiry(Instant::now());
