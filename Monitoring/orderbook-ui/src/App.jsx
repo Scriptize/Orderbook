@@ -115,7 +115,21 @@ export default function App() {
         const bids = parsed.data?.bid_infos || [];
         const asks = parsed.data?.ask_infos || [];
 
-        setOrderbook({ bids, asks });
+        setOrderbook((prev) => {
+          const blend = (oldLevels, newLevels) => {
+          const oldMap = new Map(oldLevels.map(l => [l.price, l.quantity]));
+
+          return newLevels.map(l => ({
+            price: l.price,
+            quantity: (oldMap.get(l.price) || 0) * 0.7 + l.quantity * 0.3,
+          }));
+        };
+
+          return {
+            bids: blend(prev.bids, bids),
+            asks: blend(prev.asks, asks),
+          };
+        });
         setSnapshotCount((prev) => prev + 1);
         setLastSnapshotAt(now);
 
@@ -126,10 +140,20 @@ export default function App() {
         const bestAsk = sortedAsks.length ? sortedAsks[0].price : null;
 
         if (bestBid != null && bestAsk != null) {
-          const mid = (bestBid + bestAsk) / 2;
-          setMidHistory((prev) =>
-            [...prev, { ts: now, time: formatTime(now), mid }].slice(-MAX_MID_HISTORY)
-          );
+          const rawMid = (bestBid + bestAsk) / 2;
+
+          setMidHistory((prev) => {
+            const lastVals = prev.slice(-9).map(p => p.mid);
+            const nextVals = [...lastVals, rawMid];
+
+            const smoothed =
+              nextVals.reduce((sum, v) => sum + v, 0) / nextVals.length;
+
+            return [
+              ...prev,
+              { ts: now, time: formatTime(now), mid: smoothed },
+            ].slice(-MAX_MID_HISTORY);
+          });
         }
 
         return;
@@ -157,7 +181,9 @@ export default function App() {
     const spread =
       bestBid != null && bestAsk != null ? bestAsk - bestBid : null;
     const mid =
-      bestBid != null && bestAsk != null ? (bestBid + bestAsk) / 2 : null;
+    midHistory.length > 0
+      ? midHistory[midHistory.length - 1].mid
+      : null;
 
     const totalBidVolume = sortedBids.reduce(
       (sum, level) => sum + (level.quantity || 0),

@@ -3,7 +3,7 @@
 ## Overview
 
 ### This repo contains:
-* A Python web application 🐍 
+* A React Monitoring System ⚛️
 * Implementation for a limit orderbook written in Rust! 🦀
 
 ### What is an Orderbook?

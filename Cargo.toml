@@ -2,4 +2,5 @@
 members = [
     "Orderbook/orderbook",
     "Exchange/exchange", 
-    "Server/server"]
+    "Server/server", "Actors/actors"]
+resolver = "2"
