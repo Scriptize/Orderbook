@@ -3,4 +3,3 @@ members = [
     "Orderbook/orderbook",
     "Exchange/exchange", 
     "Server/server"]
-resolver = "2"

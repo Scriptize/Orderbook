@@ -4,7 +4,7 @@ use orderbook::*;
 type OrderId = u32;
 type Price = i32;
 type Quantity = u32;
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Clone, Copy, Debug)]
 pub enum Event {
     OrderAccepted(OrderId),
     OrderRejected(RequestError),
@@ -123,10 +123,9 @@ impl Exchange {
                         bid_id
                     },
                     taker_id: id,
-                    aggresor_side: if id == bid_id { 
-                        Side::Buy
-                    } else {
-                        Side::Sell
+                    aggresor_side: match id {
+                        bid_id => Side::Buy,
+                        ask_id => Side::Sell,
                     },
                     price: trade_price,
                     quantity: trade_quantity, 
