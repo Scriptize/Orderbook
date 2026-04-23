@@ -8,12 +8,13 @@ use std::{
 };
 use chrono::{Local, NaiveDateTime, TimeDelta, DateTime, Timelike};
 use log::{info, trace, warn, debug, error};
+use serde::{Serialize, Deserialize};
 
 
 
 /// Represents the type of an order in the orderbook.
 /// Determines how the order is handled regarding matching, cancellation, and expiry.
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug, Serialize)]
 pub enum OrderType {
     /// Persistent order until explicitly cancelled.
     GoodTillCancel, 
@@ -40,7 +41,7 @@ impl std::fmt::Display for OrderType {
 }
 
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug, Serialize)]
 pub enum Side {
     Buy,
     Sell,
@@ -71,14 +72,14 @@ type Quantity = u32;
 type OrderId = u32;
 type ActorId = u32;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize)]
 pub struct LevelInfo {
     pub price: Price,
     pub quantity: Quantity,
 }
 
 type LevelInfos = Vec<LevelInfo>;
-#[derive(Debug)]
+#[derive(Debug, Serialize, Clone)]
 pub struct OrderbookLevelInfos {
     bid_infos: LevelInfos,
     ask_infos: LevelInfos,
