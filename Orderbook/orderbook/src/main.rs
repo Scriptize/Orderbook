@@ -1,8 +1,7 @@
-mod orderbook;
+use orderbook::*;
 use std::{
     cell::RefCell, collections::{BTreeMap, HashMap}, rc::Rc, time::Instant
 };
-use crate::orderbook::{Orderbook, Order, OrderType, Side};
 use log::{info, warn, error, debug, trace};
 use std::thread;
 use std::time::Duration;
@@ -41,8 +40,20 @@ fn setup_logger() -> Result<(), Box<dyn std::error::Error>> {
 
 fn main() {
     setup_logger().unwrap();
-    let mut orderbook  = Orderbook::new(BTreeMap::new(), BTreeMap::new());
+    let orderbook  = Orderbook::new();
     let book = Arc::new(Mutex::new(orderbook));
+
+    // {
+    //     let ask1 = Order::new(OrderType::GoodTillCancel, 1, Side::Sell, 100, 40);
+    //     let ask2 = Order::new(OrderType::GoodTillCancel, 2, Side::Sell, 100, 60);
+    //     let buy = Order::new(OrderType::GoodTillCancel, 3, Side::Buy, 100, 100);
+
+    //     let mut  ob = book.lock().unwrap();
+    //     ob.add_order(ask1);
+    //     ob.add_order(ask2);
+    //     ob.add_order(buy);
+    // }
+
     start_pruning_thread(book.clone());
 
     for i in 2001..=2010 {
