@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "Orderbook/orderbook",
+    "Exchange/exchange", 
+    "Server/server", "Actors/actors"]
+resolver = "2"
