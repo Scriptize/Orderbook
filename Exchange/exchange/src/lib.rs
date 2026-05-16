@@ -1,5 +1,8 @@
 use std::fmt;
 use serde::{Serialize, Deserialize};
+use std::collections::BTreeMap;
+use std::time::{Duration, Instant};
+
 use orderbook::*;
 
 type OrderId = u32;
@@ -24,6 +27,17 @@ pub enum Event {
         asker_id: ActorId,
     },
     OrderRemoved(OrderId, ActorId),
+}
+
+impl PartialEq for Event {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Event::OrderRemoved(a_id, a_actor), Event::OrderRemoved(b_id, b_actor)) => {
+                a_id == b_id && a_actor == b_actor
+            }
+            _ => false,
+        }
+    }
 }
 
 #[derive(Serialize, Clone, Copy, Debug)]
@@ -102,13 +116,20 @@ pub enum Command {
 pub struct Exchange {
     orderbook: Orderbook,
     next_order_id: OrderId,
+    expiry_map: BTreeMap<Instant, Vec<(ActorId, OrderId)>>,
+    day_length: Duration,
+    exchange_start: Instant,
+
 }
 
 impl Exchange {
-    pub fn new() -> Self {
+    pub fn new(day_length: Duration) -> Self {
         Self {
             orderbook: Orderbook::new(),
             next_order_id: 1,
+            expiry_map: BTreeMap::new(),
+            day_length: day_length,
+            exchange_start: Instant::now(),
         }
     }
 
@@ -127,6 +148,30 @@ impl Exchange {
             request.quantity,
         );
 
+        
+        if new_order.is_ok() && request.order_type == OrderType::GoodForDay {
+            let now = Instant::now();
+            // grouping expiry within 10ms
+            let bucket = Duration::from_millis(10); 
+            let expiry = now + self.day_length;
+            let since_start = expiry.duration_since(self.exchange_start);
+
+            // convert to nanos cause Duration doesn't support modulo
+            let bucket_ns = bucket.as_nanos();
+            let since_ns = since_start.as_nanos();
+            let bucketed_ns = since_ns - (since_ns % bucket_ns);
+
+            
+            let bucketed = Duration::from_nanos(bucketed_ns as u64);
+            let bucketed_expiry = self.exchange_start + bucketed;
+
+            self.expiry_map
+                .entry(bucketed_expiry)
+                .or_default()
+                .push((request.actor_id, id));
+            
+        }
+        
         events.push(Event::OrderAccepted(id, request.actor_id));
 
         let matching_result = self.orderbook.add_order(new_order?)?;
@@ -220,17 +265,45 @@ impl Exchange {
     pub fn get_snapshot(&mut self) -> OrderbookLevelInfos {
         self.orderbook.get_order_infos()
     }
-}
 
+    pub fn prune_expired_orders(&mut self) -> Result<Vec<Event>, OrderbookError> {
+        // get current time, 
+        // while top of map is a key representing a time in the past
+        // loop thru ids and send cancel requests
+
+        let mut events= Vec::new();
+
+        while let Some(entry) = self.expiry_map.first_entry()  {
+            
+            let expire_time = *entry.key();
+            let now = Instant::now();
+
+            if expire_time > now {
+                break
+            }
+
+            let (_expire_time, order_info) = entry.remove_entry();
+
+            for (actor_id, order_id) in order_info {
+                events.extend(
+                    self.handle_cancel_order(
+                    CancelOrderRequest { actor_id, order_id }
+                    )?
+                )
+            }
+        
+
+        }
+        Ok(events)
+    }
+
+}
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn create_exchange() -> Exchange {
-        Exchange {
-            orderbook: Orderbook::new(),
-            next_order_id: 1,
-        }
+        Exchange::new(Duration::from_mins(5)) // Prod day length will be around 5
     }
 
     #[test]
@@ -321,5 +394,30 @@ mod tests {
         let events = exchange.handle_modify_order(modify_req)?;
         assert!(matches!(events[0], Event::OrderRejected(RequestError::InvalidPrice, _)));
         Ok(())
+    }
+
+    #[test]
+    fn test_eod_pruning() -> Result<(), OrderbookError> {
+        
+        let mut exchange = Exchange::new(Duration::from_nanos(1));
+        
+        for _ in 0..5 {
+            let request = NewOrderRequest::new(1, OrderType::GoodForDay, Side::Buy, 100, 10).unwrap();
+            let command =  Command::NewOrder(request);
+            let _ = exchange.process(command)?;
+        }
+
+        
+        let prune_events = exchange.prune_expired_orders()?;
+
+        assert_eq!(prune_events[0], Event::OrderRemoved(1, 1));
+        assert_eq!(prune_events[1], Event::OrderRemoved(2, 1));
+        assert_eq!(prune_events[2], Event::OrderRemoved(3, 1));
+        assert_eq!(prune_events[3], Event::OrderRemoved(4, 1));
+        assert_eq!(prune_events[4], Event::OrderRemoved(5, 1));
+        assert_eq!(exchange.orderbook.size(), 0);
+
+        Ok(())
+        
     }
 }
