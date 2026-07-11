@@ -86,7 +86,7 @@ impl ExchangeServer {
                             })
                             .to_string();
 
-                            if write.send(Message::Text(event_msg.into())).await.is_err() {
+                            if write.send(Message::Text(event_msg)).await.is_err() {
                                 break;
                             }
                         }

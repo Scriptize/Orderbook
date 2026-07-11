@@ -149,7 +149,7 @@ impl Order {
         price: Price,
         quantity: Quantity,
     ) -> Result<Self, OrderbookError> {
-        if quantity <= 0 {
+        if quantity == 0 {
             return Err(OrderbookError::InvalidQuantity);
         }
 
@@ -199,11 +199,7 @@ impl Order {
                 self.order_type = OrderType::GoodTillCancel;
                 Ok(())
             }
-            _ => {
-                return Err(
-                    "Order cannot have its price adjusted, only market orders can.".to_string(),
-                )
-            }
+            _ => Err("Order cannot have its price adjusted, only market orders can.".to_string()),
         }
     }
 
@@ -515,6 +511,12 @@ pub struct Orderbook {
     order_index: HashMap<OrderId, OrderEntry>,
 }
 
+impl Default for Orderbook {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Orderbook {
     pub fn new() -> Self {
         Self {
@@ -615,16 +617,15 @@ impl Orderbook {
         // --- INSERT ---
         self.orders.insert(order_id, order);
 
-        let index;
-        if side == Side::Buy {
+        let index = if side == Side::Buy {
             let queue = self.bids.entry(price).or_default();
             queue.push(order_id);
-            index = queue.len() - 1;
+            queue.len() - 1
         } else {
             let queue = self.asks.entry(price).or_default();
             queue.push(order_id);
-            index = queue.len() - 1;
-        }
+            queue.len() - 1
+        };
 
         self.order_index.insert(
             order_id,
@@ -756,11 +757,11 @@ impl Orderbook {
             Side::Buy => self
                 .asks
                 .first_key_value()
-                .map_or(false, |(ask, _)| price >= *ask),
+                .is_some_and(|(ask, _)| price >= *ask),
             Side::Sell => self
                 .bids
                 .first_key_value()
-                .map_or(false, |(bid, _)| price <= *bid),
+                .is_some_and(|(bid, _)| price <= *bid),
         }
     }
 
@@ -832,7 +833,7 @@ impl Orderbook {
 
             // update indicies, remove() shifts left
 
-            for i in idx..queue.len() {
+            for (i, _) in queue.iter().enumerate().skip(idx) {
                 let moved_id = queue[i];
 
                 if let Some(e) = self.order_index.get_mut(&moved_id) {

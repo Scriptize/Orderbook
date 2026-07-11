@@ -2,13 +2,12 @@
 
 use std::sync::{Arc, Mutex};
 
-use actors::{Actor, InformedTrader, LiquiditySweeper, MarketMaker, NoiseTrader, Taker};
+use actors::Actor;
 use exchange::{Command, Exchange, NewOrderRequest};
 use orderbook::{OrderType, Side};
-use rand::rngs::SmallRng;
-use rand::{Rng, SeedableRng};
+use rand::Rng;
 use server::ExchangeServer;
-use tokio::time::{interval, Duration, Interval};
+use tokio::time::{interval, Duration};
 
 #[tokio::main]
 async fn main() {

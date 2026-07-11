@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::time::{Duration, Instant};
@@ -127,7 +127,7 @@ impl Exchange {
             orderbook: Orderbook::new(),
             next_order_id: 1,
             expiry_map: BTreeMap::new(),
-            day_length: day_length,
+            day_length,
             exchange_start: Instant::now(),
         }
     }
