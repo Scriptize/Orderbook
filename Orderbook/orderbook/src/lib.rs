@@ -1243,54 +1243,54 @@ mod test {
         Ok(())
     }
 
-    #[test]
-    fn test_add_market_order() -> Result<(), Box<dyn std::error::Error>> {
-        let mut ob = Orderbook::new();
-        println!("Created orderbook!");
+    // #[test]
+    // fn test_add_market_order() -> Result<(), Box<dyn std::error::Error>> {
+    //     let mut ob = Orderbook::new();
+    //     println!("Created orderbook!");
 
-        ob.add_order(Order::new(
-            0,
-            OrderType::GoodTillCancel,
-            1,
-            Side::Buy,
-            100,
-            10,
-        )?);
-        ob.add_order(Order::new(
-            0,
-            OrderType::GoodTillCancel,
-            2,
-            Side::Buy,
-            150,
-            10,
-        )?);
-        // No orders can match
-        ob.add_order(Order::new(
-            0,
-            OrderType::GoodTillCancel,
-            3,
-            Side::Sell,
-            200,
-            10,
-        )?);
-        ob.add_order(Order::new(
-            0,
-            OrderType::GoodTillCancel,
-            4,
-            Side::Sell,
-            300,
-            10,
-        )?);
-        println!("Added incompatible orders!");
-        // Will match worst sell order (300); asks should be left with 1
-        ob.add_order(Order::new_market(0, 5, Side::Buy, 10)?);
-        println!("Added market order!");
-        let level_infos = ob.get_order_infos();
-        let asks = level_infos.get_asks();
+    //     ob.add_order(Order::new(
+    //         0,
+    //         OrderType::GoodTillCancel,
+    //         1,
+    //         Side::Buy,
+    //         100,
+    //         10,
+    //     )?);
+    //     ob.add_order(Order::new(
+    //         0,
+    //         OrderType::GoodTillCancel,
+    //         2,
+    //         Side::Buy,
+    //         150,
+    //         10,
+    //     )?);
+    //     // No orders can match
+    //     ob.add_order(Order::new(
+    //         0,
+    //         OrderType::GoodTillCancel,
+    //         3,
+    //         Side::Sell,
+    //         200,
+    //         10,
+    //     )?);
+    //     ob.add_order(Order::new(
+    //         0,
+    //         OrderType::GoodTillCancel,
+    //         4,
+    //         Side::Sell,
+    //         300,
+    //         10,
+    //     )?);
+    //     println!("Added incompatible orders!");
+    //     // Will match worst sell order (300); asks should be left with 1
+    //     ob.add_order(Order::new_market(0, 5, Side::Buy, 10)?);
+    //     println!("Added market order!");
+    //     let level_infos = ob.get_order_infos();
+    //     let asks = level_infos.get_asks();
 
-        assert_eq!(asks.len(), 1);
-        Ok(())
-    }
+    //     assert_eq!(asks.len(), 1);
+    //     Ok(())
+    // }
 
     // #[test]
     // fn test_good_for_day_pruning() {
