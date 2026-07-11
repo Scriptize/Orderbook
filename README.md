@@ -10,7 +10,7 @@
 ####  An order book is a real-time list of all buy and sell orders for a security, sorted by price.
 ---
 
-<img width="500" height="644" alt="image" src="https://github.com/user-attachments/assets/cc921b2b-083b-4d30-a027-704d8bbba5e3" />
+<img width="948" height="644" alt="image" src="https://github.com/user-attachments/assets/cc921b2b-083b-4d30-a027-704d8bbba5e3" />
 
 ---
 

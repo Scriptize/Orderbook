@@ -1,68 +1,120 @@
-use std::{os::windows::process, process::Command};
+// server/src/lib.rs
 
-use orderbook::OrderbookLevelInfos;
-use tokio::sync::mpsc;
-
-use exchange::*;
-use tokio::{
-    net::{TcpListener, TcpStream},
-    sync::broadcast,
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
 };
+
+use exchange::Event;
+use futures_util::{SinkExt, StreamExt};
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::broadcast;
 use tokio_tungstenite::accept_async;
 use tungstenite::protocol::Message;
-use futures_util::{StreamExt, SinkExt};
 
+#[derive(Clone)]
 pub struct ExchangeServer {
-    exchange: Exchange,
-    event_tx: mpsc::Sender<Event>,
+    pub event_tx: broadcast::Sender<Event>,
+    pub client_count: Arc<AtomicUsize>,
 }
 
 impl ExchangeServer {
-    pub fn new() -> (Self, mpsc::Receiver<Event>) {
-        let (tx, rx) = mpsc::channel(1000);
-        (
-            Self {
-                exchange: Exchange::new(),
-                event_tx: tx,
-            },
-            rx,
-        )
-    }
-
-    pub async fn start(&self, addr: &str, mut rx: mpsc::Receiver<Event>) {
-        println!("Server started!");
-        let listener = TcpListener::bind(addr).await.unwrap();
-
-        let (stream, _) = listener.accept().await.unwrap();
-
-        self.handle_connection(stream, &mut rx).await;
-    }
-
-    async fn handle_connection(&self, stream: TcpStream, rx: &mut mpsc::Receiver<Event>) {
-        let ws_stream = accept_async(stream).await.unwrap();
-        let (mut write, _) = ws_stream.split();
-
-        
-
-        while let Some(event) = rx.recv().await {
-            let msg = serde_json::to_string(&event).unwrap();
-
-            if write.send(Message::Text(msg.into())).await.is_err() {
-                break;
-            }
+    pub fn new(event_tx: broadcast::Sender<Event>) -> Self {
+        Self {
+            event_tx,
+            client_count: Arc::new(AtomicUsize::new(0)),
         }
     }
 
-    pub fn process(& mut self, cmd: exchange::Command) -> Vec<Event> {
-        self.exchange.process(cmd)
+    pub async fn run(self, addr: &str) {
+        let listener = TcpListener::bind(addr).await.unwrap();
+
+        println!("WebSocket server listening on {}", addr);
+
+        loop {
+            let (stream, _) = listener.accept().await.unwrap();
+            let server = self.clone();
+
+            tokio::spawn(async move {
+                server.handle_connection(stream).await;
+            });
+        }
     }
 
-    pub async fn publish_event(&self, event: Event) {
-        let _ = self.event_tx.send(event).await;
-    }
+    async fn handle_connection(&self, stream: TcpStream) {
+        let ws_stream = accept_async(stream).await.unwrap();
 
-    pub fn get_snapshot(&self) -> OrderbookLevelInfos {
-        self.exchange.get_snapshot()
+        self.client_count.fetch_add(1, Ordering::SeqCst);
+
+        println!(
+            "client connected, total = {}",
+            self.client_count.load(Ordering::SeqCst)
+        );
+
+        let (mut write, mut read) = ws_stream.split();
+
+        let subscribed = loop {
+            match read.next().await {
+                Some(Ok(Message::Text(text))) if text == "subscribe" => break true,
+                Some(Ok(Message::Close(_))) | None => break false,
+                Some(Ok(_)) => {}
+                Some(Err(_)) => break false,
+            }
+        };
+
+        if !subscribed {
+            self.client_count.fetch_sub(1, Ordering::SeqCst);
+
+            println!(
+                "client disconnected before subscribe, total = {}",
+                self.client_count.load(Ordering::SeqCst)
+            );
+
+            return;
+        }
+
+        let mut rx = self.event_tx.subscribe();
+
+        loop {
+            tokio::select! {
+                recv = rx.recv() => {
+                    match recv {
+                        Ok(event) => {
+                            let event_msg = serde_json::json!({
+                                "type": "event",
+                                "data": event
+                            })
+                            .to_string();
+
+                            if write.send(Message::Text(event_msg.into())).await.is_err() {
+                                break;
+                            }
+                        }
+
+                        Err(broadcast::error::RecvError::Lagged(n)) => {
+                            println!("client lagged by {} messages", n);
+                        }
+
+                        Err(broadcast::error::RecvError::Closed) => {
+                            break;
+                        }
+                    }
+                }
+
+                incoming = read.next() => {
+                    match incoming {
+                        Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        self.client_count.fetch_sub(1, Ordering::SeqCst);
+
+        println!(
+            "client disconnected, total = {}",
+            self.client_count.load(Ordering::SeqCst)
+        );
     }
 }
-
