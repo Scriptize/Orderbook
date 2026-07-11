@@ -2,8 +2,6 @@
 target/
 **/*.rs.bk
 
-# Cargo
-Cargo.lock
 
 #Python
 .venv
@@ -11,3 +9,6 @@ __pycache__/
 
 #MacOS
 .DS_Store
+
+#Node
+node_modules/

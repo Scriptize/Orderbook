@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+  RUST_VERSION: "1.97.0"
+
+jobs:
+  ci:
+    name: Rust workspace checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install "$RUST_VERSION" \
+            --profile minimal \
+            --component rustfmt \
+            --component clippy
+          rustup default "$RUST_VERSION"
+
+      - name: Cache Cargo files
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-rust-${{ env.RUST_VERSION }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-rust-${{ env.RUST_VERSION }}-
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run Clippy
+        run: >
+          cargo clippy
+          --workspace
+          --all-targets
+          --all-features
+          --locked
+          --
+          -D warnings
+
+      - name: Run tests
+        run: >
+          cargo test
+          --workspace
+          --all-targets
+          --all-features
+          --locked
+
+      - name: Check documentation
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+        run: >
+          cargo doc
+          --workspace
+          --all-features
+          --no-deps
+          --locked
