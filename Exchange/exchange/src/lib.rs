@@ -1,6 +1,6 @@
-use std::fmt;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::fmt;
 use std::time::{Duration, Instant};
 
 use orderbook::*;
@@ -104,7 +104,7 @@ pub struct ModifyOrderRequest {
 
 pub struct CancelOrderRequest {
     pub actor_id: ActorId,
-    pub order_id: OrderId
+    pub order_id: OrderId,
 }
 
 pub enum Command {
@@ -119,7 +119,6 @@ pub struct Exchange {
     expiry_map: BTreeMap<Instant, Vec<(ActorId, OrderId)>>,
     day_length: Duration,
     exchange_start: Instant,
-
 }
 
 impl Exchange {
@@ -148,11 +147,10 @@ impl Exchange {
             request.quantity,
         );
 
-        
         if new_order.is_ok() && request.order_type == OrderType::GoodForDay {
             let now = Instant::now();
             // grouping expiry within 10ms
-            let bucket = Duration::from_millis(10); 
+            let bucket = Duration::from_millis(10);
             let expiry = now + self.day_length;
             let since_start = expiry.duration_since(self.exchange_start);
 
@@ -161,7 +159,6 @@ impl Exchange {
             let since_ns = since_start.as_nanos();
             let bucketed_ns = since_ns - (since_ns % bucket_ns);
 
-            
             let bucketed = Duration::from_nanos(bucketed_ns as u64);
             let bucketed_expiry = self.exchange_start + bucketed;
 
@@ -169,9 +166,8 @@ impl Exchange {
                 .entry(bucketed_expiry)
                 .or_default()
                 .push((request.actor_id, id));
-            
         }
-        
+
         events.push(Event::OrderAccepted(id, request.actor_id));
 
         let matching_result = self.orderbook.add_order(new_order?)?;
@@ -200,13 +196,15 @@ impl Exchange {
 
         for (filled_id, actor_id) in filled_orders {
             events.push(Event::OrderRemoved(*filled_id, *actor_id));
-    
         }
 
         Ok(events)
     }
 
-    fn handle_cancel_order(&mut self, request: CancelOrderRequest) -> Result<Vec<Event>, OrderbookError> {
+    fn handle_cancel_order(
+        &mut self,
+        request: CancelOrderRequest,
+    ) -> Result<Vec<Event>, OrderbookError> {
         let mut events = Vec::new();
         let actor_id = request.actor_id;
         let order_id = request.order_id;
@@ -214,13 +212,19 @@ impl Exchange {
         if self.orderbook.cancel_order(order_id).is_ok() {
             events.push(Event::OrderRemoved(order_id, actor_id));
         } else {
-            events.push(Event::CancellationFailure(order_id, RequestError::InvalidOrder));
+            events.push(Event::CancellationFailure(
+                order_id,
+                RequestError::InvalidOrder,
+            ));
         }
 
         Ok(events)
     }
 
-    fn handle_modify_order(&mut self, request: ModifyOrderRequest) -> Result<Vec<Event>, OrderbookError> {
+    fn handle_modify_order(
+        &mut self,
+        request: ModifyOrderRequest,
+    ) -> Result<Vec<Event>, OrderbookError> {
         let mut events = Vec::new();
 
         match NewOrderRequest::new(
@@ -231,7 +235,10 @@ impl Exchange {
             request.quantity,
         ) {
             Ok(req) => {
-                events.extend(self.handle_cancel_order(CancelOrderRequest { actor_id: request.actor_id, order_id: request.id })?);
+                events.extend(self.handle_cancel_order(CancelOrderRequest {
+                    actor_id: request.actor_id,
+                    order_id: request.id,
+                })?);
 
                 if let Some(Event::CancellationFailure(_, RequestError::InvalidOrder)) =
                     events.last()
@@ -267,36 +274,28 @@ impl Exchange {
     }
 
     pub fn prune_expired_orders(&mut self) -> Result<Vec<Event>, OrderbookError> {
-        // get current time, 
+        // get current time,
         // while top of map is a key representing a time in the past
         // loop thru ids and send cancel requests
 
-        let mut events= Vec::new();
+        let mut events = Vec::new();
 
-        while let Some(entry) = self.expiry_map.first_entry()  {
-            
+        while let Some(entry) = self.expiry_map.first_entry() {
             let expire_time = *entry.key();
             let now = Instant::now();
 
             if expire_time > now {
-                break
+                break;
             }
 
             let (_expire_time, order_info) = entry.remove_entry();
 
             for (actor_id, order_id) in order_info {
-                events.extend(
-                    self.handle_cancel_order(
-                    CancelOrderRequest { actor_id, order_id }
-                    )?
-                )
+                events.extend(self.handle_cancel_order(CancelOrderRequest { actor_id, order_id })?)
             }
-        
-
         }
         Ok(events)
     }
-
 }
 #[cfg(test)]
 mod tests {
@@ -309,7 +308,8 @@ mod tests {
     #[test]
     fn test_new_order_increments_order_id() -> Result<(), OrderbookError> {
         let mut exchange = create_exchange();
-        let request = NewOrderRequest::new(1, OrderType::GoodTillCancel, Side::Buy, 100, 10).unwrap();
+        let request =
+            NewOrderRequest::new(1, OrderType::GoodTillCancel, Side::Buy, 100, 10).unwrap();
         let events = exchange.handle_new_order(request)?;
         assert_eq!(exchange.next_order_id, 2);
         assert!(matches!(events[0], Event::OrderAccepted(1, _)));
@@ -317,28 +317,39 @@ mod tests {
     }
 
     #[test]
-    fn test_cancel_existing_order() -> Result<(), OrderbookError>  {
+    fn test_cancel_existing_order() -> Result<(), OrderbookError> {
         let mut exchange = create_exchange();
-        let request = NewOrderRequest::new(1, OrderType::GoodTillCancel, Side::Buy, 100, 10).unwrap();
+        let request =
+            NewOrderRequest::new(1, OrderType::GoodTillCancel, Side::Buy, 100, 10).unwrap();
         exchange.handle_new_order(request)?;
-        
-        let events = exchange.handle_cancel_order(CancelOrderRequest { actor_id: 1, order_id: 1 })?;
+
+        let events = exchange.handle_cancel_order(CancelOrderRequest {
+            actor_id: 1,
+            order_id: 1,
+        })?;
         assert!(matches!(events[0], Event::OrderRemoved(1, _)));
         Ok(())
     }
 
     #[test]
-    fn test_cancel_nonexistent_order() -> Result<(), OrderbookError>  {
+    fn test_cancel_nonexistent_order() -> Result<(), OrderbookError> {
         let mut exchange = create_exchange();
-        let events = exchange.handle_cancel_order(CancelOrderRequest { actor_id: 1, order_id: 999 })?;
-        assert!(matches!(events[0], Event::CancellationFailure(999, RequestError::InvalidOrder)));
+        let events = exchange.handle_cancel_order(CancelOrderRequest {
+            actor_id: 1,
+            order_id: 999,
+        })?;
+        assert!(matches!(
+            events[0],
+            Event::CancellationFailure(999, RequestError::InvalidOrder)
+        ));
         Ok(())
     }
 
     #[test]
-    fn test_process_new_order_command() -> Result<(), OrderbookError>  {
+    fn test_process_new_order_command() -> Result<(), OrderbookError> {
         let mut exchange = create_exchange();
-        let request = NewOrderRequest::new(1, OrderType::GoodTillCancel, Side::Sell, 100, 5).unwrap();
+        let request =
+            NewOrderRequest::new(1, OrderType::GoodTillCancel, Side::Sell, 100, 5).unwrap();
         let cmd = Command::NewOrder(request);
         let events = exchange.process(cmd)?;
         assert!(matches!(events[0], Event::OrderAccepted(1, _)));
@@ -346,23 +357,28 @@ mod tests {
     }
 
     #[test]
-    fn test_process_cancel_command() -> Result<(), OrderbookError>  {
+    fn test_process_cancel_command() -> Result<(), OrderbookError> {
         let mut exchange = create_exchange();
-        let request = NewOrderRequest::new(1, OrderType::GoodTillCancel, Side::Buy, 100, 10).unwrap();
+        let request =
+            NewOrderRequest::new(1, OrderType::GoodTillCancel, Side::Buy, 100, 10).unwrap();
         exchange.handle_new_order(request)?;
-        
-        let cmd = Command::Cancel(CancelOrderRequest { actor_id: 1, order_id: 1 });
+
+        let cmd = Command::Cancel(CancelOrderRequest {
+            actor_id: 1,
+            order_id: 1,
+        });
         let events = exchange.process(cmd)?;
         assert!(matches!(events[0], Event::OrderRemoved(1, _)));
         Ok(())
     }
 
     #[test]
-    fn test_modify_order_cancels_and_creates_new() -> Result<(), OrderbookError>  {
+    fn test_modify_order_cancels_and_creates_new() -> Result<(), OrderbookError> {
         let mut exchange = create_exchange();
-        let orig_request = NewOrderRequest::new(1, OrderType::GoodTillCancel, Side::Buy, 100, 10).unwrap();
+        let orig_request =
+            NewOrderRequest::new(1, OrderType::GoodTillCancel, Side::Buy, 100, 10).unwrap();
         exchange.handle_new_order(orig_request)?;
-        
+
         let modify_req = ModifyOrderRequest {
             id: 1,
             actor_id: 1,
@@ -378,11 +394,12 @@ mod tests {
     }
 
     #[test]
-    fn test_modify_order_with_invalid_request() -> Result<(), OrderbookError>  {
+    fn test_modify_order_with_invalid_request() -> Result<(), OrderbookError> {
         let mut exchange = create_exchange();
-        let orig_request = NewOrderRequest::new(1, OrderType::GoodTillCancel, Side::Buy, 100, 10).unwrap();
+        let orig_request =
+            NewOrderRequest::new(1, OrderType::GoodTillCancel, Side::Buy, 100, 10).unwrap();
         exchange.handle_new_order(orig_request)?;
-        
+
         let modify_req = ModifyOrderRequest {
             id: 1,
             actor_id: 1,
@@ -392,22 +409,24 @@ mod tests {
             quantity: 10,
         };
         let events = exchange.handle_modify_order(modify_req)?;
-        assert!(matches!(events[0], Event::OrderRejected(RequestError::InvalidPrice, _)));
+        assert!(matches!(
+            events[0],
+            Event::OrderRejected(RequestError::InvalidPrice, _)
+        ));
         Ok(())
     }
 
     #[test]
     fn test_eod_pruning() -> Result<(), OrderbookError> {
-        
         let mut exchange = Exchange::new(Duration::from_nanos(1));
-        
+
         for _ in 0..5 {
-            let request = NewOrderRequest::new(1, OrderType::GoodForDay, Side::Buy, 100, 10).unwrap();
-            let command =  Command::NewOrder(request);
+            let request =
+                NewOrderRequest::new(1, OrderType::GoodForDay, Side::Buy, 100, 10).unwrap();
+            let command = Command::NewOrder(request);
             let _ = exchange.process(command)?;
         }
 
-        
         let prune_events = exchange.prune_expired_orders()?;
 
         assert_eq!(prune_events[0], Event::OrderRemoved(1, 1));
@@ -418,6 +437,5 @@ mod tests {
         assert_eq!(exchange.orderbook.size(), 0);
 
         Ok(())
-        
     }
 }

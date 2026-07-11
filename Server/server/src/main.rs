@@ -2,17 +2,16 @@
 
 use std::sync::{Arc, Mutex};
 
+use actors::{Actor, InformedTrader, LiquiditySweeper, MarketMaker, NoiseTrader, Taker};
 use exchange::{Command, Exchange, NewOrderRequest};
 use orderbook::{OrderType, Side};
-use server::ExchangeServer;
-use rand::{Rng, SeedableRng};
 use rand::rngs::SmallRng;
-use actors::{Actor, MarketMaker, NoiseTrader, Taker, InformedTrader, LiquiditySweeper};
-use tokio::time::{Duration, Interval, interval};
+use rand::{Rng, SeedableRng};
+use server::ExchangeServer;
+use tokio::time::{interval, Duration, Interval};
 
 #[tokio::main]
 async fn main() {
-
     let mut actors: Vec<Box<dyn Actor>> = vec![
     // Box::new(MarketMaker::new(1)),
     // Box::new(MarketMaker::new(2)),
@@ -34,7 +33,7 @@ async fn main() {
     // Box::new(NoiseTrader::new(18)),
     // Box::new(NoiseTrader::new(19)),
     ];
-    
+
     let localhost = "127.0.0.1:9001";
 
     let exchange = Arc::new(Mutex::new(Exchange::new(Duration::from_secs(60))));
@@ -61,7 +60,6 @@ async fn main() {
         async move {
             let mut ticker = interval(day_length);
 
-
             loop {
                 ticker.tick().await;
                 let events = {
@@ -69,18 +67,14 @@ async fn main() {
                     println!("Pruning!!!");
                     ex.prune_expired_orders().unwrap()
                 };
-                
 
                 for event in events {
                     let _ = tx.send(event);
                 }
             }
         }
-
-        
     });
-    
-    
+
     tokio::spawn({
         let exchange = exchange.clone();
         let tx = tx.clone();
@@ -89,12 +83,14 @@ async fn main() {
             let mut ex = exchange.lock().unwrap();
 
             ex.process(Command::NewOrder(
-                NewOrderRequest::new(0, OrderType::GoodForDay, Side::Buy, 999, 100).unwrap()
-            )).unwrap();
+                NewOrderRequest::new(0, OrderType::GoodForDay, Side::Buy, 999, 100).unwrap(),
+            ))
+            .unwrap();
 
             ex.process(Command::NewOrder(
-                NewOrderRequest::new(0, OrderType::GoodForDay, Side::Buy, 1001, 100).unwrap()
-            )).unwrap();
+                NewOrderRequest::new(0, OrderType::GoodForDay, Side::Buy, 1001, 100).unwrap(),
+            ))
+            .unwrap();
         }
 
         async move {

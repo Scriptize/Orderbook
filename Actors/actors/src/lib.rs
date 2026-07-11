@@ -1,4 +1,4 @@
-use exchange::{NewOrderRequest, CancelOrderRequest, Command, Event};
+use exchange::{CancelOrderRequest, Command, Event, NewOrderRequest};
 use orderbook::*;
 use rand::Rng;
 
@@ -32,7 +32,7 @@ impl Actor for MarketMaker {
             (Some(b), Some(a)) => b + (a - b) / 2,
             _ => 1000,
         };
-            
+
         let skew = -self.inventory / 10;
         let spread = self.spread.max(1);
 
@@ -71,7 +71,8 @@ impl Actor for MarketMaker {
                 Side::Buy,
                 bid_price.max(1),
                 size,
-            ).unwrap(),
+            )
+            .unwrap(),
         ));
 
         // new ask
@@ -82,7 +83,8 @@ impl Actor for MarketMaker {
                 Side::Sell,
                 ask_price.max(1),
                 size,
-            ).unwrap(),
+            )
+            .unwrap(),
         ));
 
         cmds
@@ -107,7 +109,12 @@ impl Actor for MarketMaker {
                 }
             }
 
-            Event::TradeExecuted { bidder_id, asker_id, quantity, .. } => {
+            Event::TradeExecuted {
+                bidder_id,
+                asker_id,
+                quantity,
+                ..
+            } => {
                 if *bidder_id == self.actor_id {
                     self.inventory += *quantity as i32;
                 }
@@ -123,7 +130,9 @@ impl Actor for MarketMaker {
 
 /* ========================= NOISE TRADER ========================= */
 
-pub struct NoiseTrader { actor_id: ActorId }
+pub struct NoiseTrader {
+    actor_id: ActorId,
+}
 
 impl Actor for NoiseTrader {
     fn step(&mut self, book: OrderbookLevelInfos) -> Vec<Command> {
@@ -144,10 +153,15 @@ impl Actor for NoiseTrader {
         let price = (mid + rng.gen_range(-3..=3)).max(1);
         let qty = rng.gen_range(1..50);
 
-        let side = if rng.gen_bool(0.5) { Side::Buy } else { Side::Sell };
+        let side = if rng.gen_bool(0.5) {
+            Side::Buy
+        } else {
+            Side::Sell
+        };
 
         vec![Command::NewOrder(
-            NewOrderRequest::new(self.actor_id, OrderType::GoodTillCancel, side, price, qty).unwrap()
+            NewOrderRequest::new(self.actor_id, OrderType::GoodTillCancel, side, price, qty)
+                .unwrap(),
         )]
     }
 
@@ -156,7 +170,9 @@ impl Actor for NoiseTrader {
 
 /* ========================= TAKER ========================= */
 
-pub struct Taker { actor_id: ActorId }
+pub struct Taker {
+    actor_id: ActorId,
+}
 
 impl Actor for Taker {
     fn step(&mut self, book: OrderbookLevelInfos) -> Vec<Command> {
@@ -176,11 +192,13 @@ impl Actor for Taker {
 
         if rng.gen_bool(0.5) {
             vec![Command::NewOrder(
-                NewOrderRequest::new(self.actor_id, OrderType::Market, Side::Buy, best_ask, qty).unwrap()
+                NewOrderRequest::new(self.actor_id, OrderType::Market, Side::Buy, best_ask, qty)
+                    .unwrap(),
             )]
         } else {
             vec![Command::NewOrder(
-                NewOrderRequest::new(self.actor_id, OrderType::Market, Side::Sell, best_bid, qty).unwrap()
+                NewOrderRequest::new(self.actor_id, OrderType::Market, Side::Sell, best_bid, qty)
+                    .unwrap(),
             )]
         }
     }
@@ -214,11 +232,19 @@ impl Actor for InformedTrader {
         if let Some(last) = self.last_mid {
             if mid > last {
                 cmds.push(Command::NewOrder(
-                    NewOrderRequest::new(self.actor_id, OrderType::Market, Side::Buy, best_ask, 50).unwrap()
+                    NewOrderRequest::new(self.actor_id, OrderType::Market, Side::Buy, best_ask, 50)
+                        .unwrap(),
                 ));
             } else if mid < last {
                 cmds.push(Command::NewOrder(
-                    NewOrderRequest::new(self.actor_id, OrderType::Market, Side::Sell, best_bid, 50).unwrap()
+                    NewOrderRequest::new(
+                        self.actor_id,
+                        OrderType::Market,
+                        Side::Sell,
+                        best_bid,
+                        50,
+                    )
+                    .unwrap(),
                 ));
             }
         }
@@ -233,7 +259,9 @@ impl Actor for InformedTrader {
 
 /* ========================= LIQUIDITY SWEEPER ========================= */
 
-pub struct LiquiditySweeper { actor_id: ActorId }
+pub struct LiquiditySweeper {
+    actor_id: ActorId,
+}
 
 impl Actor for LiquiditySweeper {
     fn step(&mut self, book: OrderbookLevelInfos) -> Vec<Command> {
@@ -257,11 +285,13 @@ impl Actor for LiquiditySweeper {
 
         if rng.gen_bool(0.5) {
             vec![Command::NewOrder(
-                NewOrderRequest::new(self.actor_id, OrderType::Market, Side::Buy, best_ask, qty).unwrap()
+                NewOrderRequest::new(self.actor_id, OrderType::Market, Side::Buy, best_ask, qty)
+                    .unwrap(),
             )]
         } else {
             vec![Command::NewOrder(
-                NewOrderRequest::new(self.actor_id, OrderType::Market, Side::Sell, best_bid, qty).unwrap()
+                NewOrderRequest::new(self.actor_id, OrderType::Market, Side::Sell, best_bid, qty)
+                    .unwrap(),
             )]
         }
     }
@@ -283,11 +313,26 @@ impl MarketMaker {
     }
 }
 
-impl NoiseTrader { pub fn new(actor_id: ActorId) -> Self { Self { actor_id } } }
-impl Taker { pub fn new(actor_id: ActorId) -> Self { Self { actor_id } } }
-impl InformedTrader {
+impl NoiseTrader {
     pub fn new(actor_id: ActorId) -> Self {
-        Self { actor_id, last_mid: None }
+        Self { actor_id }
     }
 }
-impl LiquiditySweeper { pub fn new(actor_id: ActorId) -> Self { Self { actor_id } } }
+impl Taker {
+    pub fn new(actor_id: ActorId) -> Self {
+        Self { actor_id }
+    }
+}
+impl InformedTrader {
+    pub fn new(actor_id: ActorId) -> Self {
+        Self {
+            actor_id,
+            last_mid: None,
+        }
+    }
+}
+impl LiquiditySweeper {
+    pub fn new(actor_id: ActorId) -> Self {
+        Self { actor_id }
+    }
+}

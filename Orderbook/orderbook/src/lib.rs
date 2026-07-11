@@ -1,24 +1,26 @@
 #![allow(unused)]
-use std::{
-    cell::RefCell, 
-    collections::{BTreeMap, HashMap, btree_map::Entry}, 
-    rc::Rc, sync::{Arc, Condvar, Mutex, atomic::{AtomicBool, Ordering}}, 
-    thread::{self, JoinHandle}, time::{Instant, Duration, SystemTime, UNIX_EPOCH},
-
-};
-use chrono::{Local, NaiveDateTime, TimeDelta, DateTime, Timelike};
-use log::{info, trace, warn, debug, error};
-use serde::{Serialize, Deserialize};
+use chrono::{DateTime, Local, NaiveDateTime, TimeDelta, Timelike};
+use log::{debug, error, info, trace, warn};
+use serde::{Deserialize, Serialize};
 use std::fmt;
-
-
+use std::{
+    cell::RefCell,
+    collections::{btree_map::Entry, BTreeMap, HashMap},
+    rc::Rc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Condvar, Mutex,
+    },
+    thread::{self, JoinHandle},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+};
 
 /// Represents the type of an order in the orderbook.
 /// Determines how the order is handled regarding matching, cancellation, and expiry.
 #[derive(Clone, Copy, PartialEq, Debug, Serialize)]
 pub enum OrderType {
     /// Persistent order until explicitly cancelled.
-    GoodTillCancel, 
+    GoodTillCancel,
     /// Expires automatically at the end of the trading day.
     GoodForDay,
     /// Matches as much as possible immediately, cancels remainder.
@@ -40,7 +42,6 @@ impl std::fmt::Display for OrderType {
         }
     }
 }
-
 
 #[derive(Clone, Copy, PartialEq, Debug, Serialize)]
 pub enum Side {
@@ -88,7 +89,10 @@ pub struct OrderbookLevelInfos {
 
 impl OrderbookLevelInfos {
     pub fn new(bids: LevelInfos, asks: LevelInfos) -> Self {
-        Self { bid_infos: bids, ask_infos: asks }
+        Self {
+            bid_infos: bids,
+            ask_infos: asks,
+        }
     }
     pub const fn get_bids(&self) -> &LevelInfos {
         &self.bid_infos
@@ -145,16 +149,15 @@ impl Order {
         price: Price,
         quantity: Quantity,
     ) -> Result<Self, OrderbookError> {
-
         if quantity <= 0 {
-            return Err(OrderbookError::InvalidQuantity)
+            return Err(OrderbookError::InvalidQuantity);
         }
 
         if price <= 0 {
-            return Err(OrderbookError::InvalidPrice)
+            return Err(OrderbookError::InvalidPrice);
         }
 
-        Ok(Self{
+        Ok(Self {
             actor_id,
             order_type,
             order_id,
@@ -167,23 +170,21 @@ impl Order {
         })
     }
 
-
     /// Initializes `price` to a sentinel (e.g., `i32::MIN`) since market
     /// orders are price-less until optionally converted via [`Order::to_good_till_cancel`].
     pub fn new_market(
         actor_id: ActorId,
         order_id: OrderId,
         side: Side,
-        quantity: Quantity, 
+        quantity: Quantity,
     ) -> Result<Self, OrderbookError> {
-
         Self::new(
             actor_id,
             OrderType::Market,
             order_id,
             side,
             i32::MIN,
-            quantity
+            quantity,
         )
     }
 
@@ -192,13 +193,17 @@ impl Order {
     /// # Errors
     /// Returns an error if the order is not currently `OrderType::Market`.
     pub fn to_good_till_cancel(&mut self, price: Price) -> Result<(), String> {
-        match self.get_order_type(){
+        match self.get_order_type() {
             OrderType::Market => {
                 self.price = price;
                 self.order_type = OrderType::GoodTillCancel;
                 Ok(())
             }
-            _ => return Err("Order cannot have its price adjusted, only market orders can.".to_string()),
+            _ => {
+                return Err(
+                    "Order cannot have its price adjusted, only market orders can.".to_string(),
+                )
+            }
         }
     }
 
@@ -242,7 +247,6 @@ impl Order {
         self.filled
     }
 
-
     /// Applies a partial or full fill to the order.
     ///
     /// Decrements `remaining_quantity` and increments `filled_quantity`.
@@ -256,7 +260,7 @@ impl Order {
             self.filled_quantity += quantity;
             if self.remaining_quantity == 0 {
                 self.filled = true;
-            }   
+            }
             Ok(())
         } else {
             Err("Order cannot be filled for more than it's remaining quantity.".to_string())
@@ -292,7 +296,13 @@ impl OrderModify {
     /// - `side`: The updated order side.
     /// - `price`: The updated price.
     /// - `quantity`: The updated total quantity.
-    pub fn new(actor_id: ActorId, order_id: OrderId, side: Side, price: Price, quantity: Quantity) -> Self {
+    pub fn new(
+        actor_id: ActorId,
+        order_id: OrderId,
+        side: Side,
+        price: Price,
+        quantity: Quantity,
+    ) -> Self {
         Self {
             actor_id,
             order_id,
@@ -324,7 +334,6 @@ impl OrderModify {
     pub const fn get_quantity(&self) -> Quantity {
         self.quantity
     }
-
 
     /// This is typically used when re-inserting the modified order into the order book.
     ///
@@ -378,7 +387,14 @@ impl Trade {
     /// # Parameters
     /// - `bid_trade`: Information about the buy side of the trade.
     /// - `ask_trade`: Information about the sell side of the trade.
-    pub fn new(trade_price: Price, trade_quantity: Quantity, bid_trade: TradeInfo, ask_trade: TradeInfo, bidder_id: ActorId, asker_id: ActorId) -> Self {
+    pub fn new(
+        trade_price: Price,
+        trade_quantity: Quantity,
+        bid_trade: TradeInfo,
+        ask_trade: TradeInfo,
+        bidder_id: ActorId,
+        asker_id: ActorId,
+    ) -> Self {
         Self {
             trade_price,
             trade_quantity,
@@ -416,7 +432,6 @@ impl Trade {
     }
 }
 
-
 type Trades = Vec<Trade>;
 
 pub struct MatchResult {
@@ -439,8 +454,6 @@ impl MatchResult {
     pub fn get_filled_orders(&self) -> &Vec<(OrderId, ActorId)> {
         &self.filled_orders
     }
-
-
 }
 
 /// Internal record used to track an order’s position in the order book.
@@ -456,7 +469,6 @@ struct OrderEntry {
     /// Price of the order.
     price: Price,
 }
-
 
 /// Aggregated data for a single price level in the order book.
 ///
@@ -489,7 +501,6 @@ impl fmt::Display for OrderbookError {
 }
 impl std::error::Error for OrderbookError {}
 
-
 #[derive(Debug)]
 pub struct Orderbook {
     /// Aggregated per-level stats used for FOK checks and level reporting.
@@ -501,18 +512,17 @@ pub struct Orderbook {
     /// Fast lookup: order id → (pointer + cached location/side/price).
     orders: HashMap<OrderId, Order>,
 
-    order_index: HashMap<OrderId, OrderEntry>
+    order_index: HashMap<OrderId, OrderEntry>,
 }
 
 impl Orderbook {
-    
     pub fn new() -> Self {
         Self {
             bids: BTreeMap::new(),
             asks: BTreeMap::new(),
             orders: HashMap::new(),
             data: HashMap::new(),
-            order_index: HashMap::new()
+            order_index: HashMap::new(),
         }
     }
 
@@ -533,7 +543,10 @@ impl Orderbook {
                 let order = self.orders.get(id).unwrap();
                 sum + order.get_remaining_quantity()
             });
-            LevelInfo { price, quantity: total_quantity }
+            LevelInfo {
+                price,
+                quantity: total_quantity,
+            }
         };
 
         for (price, orders) in &self.bids {
@@ -544,7 +557,10 @@ impl Orderbook {
             ask_infos.push(create_level_infos(*price, orders));
         }
 
-        OrderbookLevelInfos { bid_infos, ask_infos }
+        OrderbookLevelInfos {
+            bid_infos,
+            ask_infos,
+        }
     }
 
     /// Inserts an order into the book, possibly converting it and/or matching immediately.
@@ -581,8 +597,6 @@ impl Orderbook {
                 }
                 _ => return Err(OrderbookError::MarketOrderNoLiquidity),
             };
-
-
         }
 
         let price = order.get_price();
@@ -594,9 +608,7 @@ impl Orderbook {
         }
 
         // --- FOK ---
-        if order_type == OrderType::FillOrKill
-            && !self.can_fully_fill(side, price, quantity)
-        {
+        if order_type == OrderType::FillOrKill && !self.can_fully_fill(side, price, quantity) {
             return Err(OrderbookError::FillOrKillNotFillable);
         }
 
@@ -614,21 +626,20 @@ impl Orderbook {
             index = queue.len() - 1;
         }
 
-        self.order_index.insert(order_id, OrderEntry {
-            location: index,
-            side,
-            price,
-        });
-
-        debug!("Added {}#{} for {}/{} @ {} ({})",
-            side,
+        self.order_index.insert(
             order_id,
-            quantity,
-            quantity,
-            price,
-            order_type
+            OrderEntry {
+                location: index,
+                side,
+                price,
+            },
         );
-        
+
+        debug!(
+            "Added {}#{} for {}/{} @ {} ({})",
+            side, order_id, quantity, quantity, price, order_type
+        );
+
         self.on_order_added(order_id);
 
         Ok(self.match_orders(side))
@@ -640,8 +651,8 @@ impl Orderbook {
             Some(e) => e,
             None => {
                 warn!("Cannot cancel non existent order {}", order_id);
-                return Err(OrderbookError::OrderNotFound(order_id))
-            } 
+                return Err(OrderbookError::OrderNotFound(order_id));
+            }
         };
 
         let price = entry.price;
@@ -650,10 +661,12 @@ impl Orderbook {
         self.on_order_cancelled(order_id);
         self.remove_order_from_book(order_id, price, side);
 
-        info!("Cancelled Order#{} at price {} side {:?}", order_id, price, side);
+        info!(
+            "Cancelled Order#{} at price {} side {:?}",
+            order_id, price, side
+        );
         Ok(())
     }
-
 
     /// Modifies an existing order by canceling and re-adding with new parameters.
     ///
@@ -672,31 +685,36 @@ impl Orderbook {
             }
         };
 
-
-        info!("Modifying order_id {} to price {} qty {} side {:?}", order_id, ordermod.get_price(), ordermod.get_quantity(), ordermod.get_side());
+        info!(
+            "Modifying order_id {} to price {} qty {} side {:?}",
+            order_id,
+            ordermod.get_price(),
+            ordermod.get_quantity(),
+            ordermod.get_side()
+        );
         self.cancel_order(order_id);
         self.add_order(ordermod.to_order(order_type)?)
     }
 
     /// Updates per-level aggregates after adds/matches/cancels.
     fn update_level_data(&mut self, price: Price, quantity: Quantity, action: LevelDataAction) {
-        let data = self.data.entry(price).or_insert(LevelData { 
-            quantity: 0, 
-            count: 0 
+        let data = self.data.entry(price).or_insert(LevelData {
+            quantity: 0,
+            count: 0,
         });
 
         match action {
             LevelDataAction::Remove => {
                 data.count -= 1;
                 data.quantity -= quantity;
-            },
+            }
             LevelDataAction::Add => {
                 data.count += 1;
                 data.quantity += quantity;
-            },
+            }
             LevelDataAction::Match => {
                 data.quantity -= quantity;
-            },
+            }
         }
 
         if data.count == 0 {
@@ -707,13 +725,17 @@ impl Orderbook {
     /// Hook invoked on successful cancel; updates aggregates.
     fn on_order_cancelled(&mut self, order_id: OrderId) {
         if let Some(entry) = self.orders.get(&order_id) {
-            self.update_level_data(entry.price, entry.remaining_quantity, LevelDataAction::Remove)
+            self.update_level_data(
+                entry.price,
+                entry.remaining_quantity,
+                LevelDataAction::Remove,
+            )
         }
     }
 
     /// Hook invoked on successful add; updates aggregates.
     fn on_order_added(&mut self, order_id: OrderId) {
-       if let Some(entry) = self.orders.get(&order_id) {
+        if let Some(entry) = self.orders.get(&order_id) {
             self.update_level_data(entry.price, entry.remaining_quantity, LevelDataAction::Add)
         }
     }
@@ -731,8 +753,14 @@ impl Orderbook {
     /// Returns `true` if a new order on `side` at `price` would cross the book.
     fn can_match(&mut self, side: Side, price: Price) -> bool {
         match side {
-            Side::Buy => self.asks.first_key_value().map_or(false, |(ask, _)| price >= *ask),
-            Side::Sell => self.bids.first_key_value().map_or(false, |(bid, _)| price <= *bid),
+            Side::Buy => self
+                .asks
+                .first_key_value()
+                .map_or(false, |(ask, _)| price >= *ask),
+            Side::Sell => self
+                .bids
+                .first_key_value()
+                .map_or(false, |(bid, _)| price <= *bid),
         }
     }
 
@@ -787,17 +815,15 @@ impl Orderbook {
 
     /// Removes an order from the side/price queue and fixes indices/maps.
     fn remove_order_from_book(&mut self, order_id: OrderId, price: Price, side: Side) {
-        
-        let entry =  match self.order_index.remove(&order_id) {
+        let entry = match self.order_index.remove(&order_id) {
             Some(e) => e,
-            None => return
+            None => return,
         };
 
         let queue = match side {
             Side::Buy => self.bids.get_mut(&price),
             Side::Sell => self.asks.get_mut(&price),
         };
-
 
         if let Some(queue) = queue {
             let idx = entry.location;
@@ -816,19 +842,25 @@ impl Orderbook {
 
             if queue.is_empty() {
                 match side {
-                    Side::Buy => { self.bids.remove(&price); }
-                    Side::Sell => { self.asks.remove(&price); }
+                    Side::Buy => {
+                        self.bids.remove(&price);
+                    }
+                    Side::Sell => {
+                        self.asks.remove(&price);
+                    }
                 }
             }
         }
 
-        
         self.orders.remove(&order_id);
 
-        trace!("Removed Order#{} from book at price {} side {:?}", order_id, price, side);
-
-        }
-    
+        trace!(
+            "Removed Order#{} from book at price {} side {:?}",
+            order_id,
+            price,
+            side
+        );
+    }
 
     /// Central matching loop.
     ///
@@ -847,17 +879,16 @@ impl Orderbook {
             //best prices
             let bid_price = *self.bids.keys().next_back().unwrap();
             let ask_price = *self.asks.keys().next().unwrap();
-            
+
             if bid_price < ask_price {
                 break;
             }
 
-            //front of queues 
+            //front of queues
             let bid_id = self.bids.get(&bid_price).unwrap()[0];
             let ask_id = self.asks.get(&ask_price).unwrap()[0];
-            
 
-           // --- READ ONLY FIRST ---
+            // --- READ ONLY FIRST ---
             let (bid_remaining, ask_remaining, bid_type, ask_type, bid_actor_id, ask_actor_id);
 
             {
@@ -872,16 +903,15 @@ impl Orderbook {
 
                 bid_actor_id = bid.actor_id;
                 ask_actor_id = ask.actor_id;
-
             }
-                
+
             let trade_quantity = bid_remaining.min(ask_remaining);
             if trade_quantity == 0 {
                 break;
             }
 
             // --- APPLY FILLS (separately to avoid borrow conflict) ---
-            
+
             let mut bid_filled = false;
             let mut ask_filled = false;
 
@@ -897,32 +927,34 @@ impl Orderbook {
                 ask_filled = ask.is_filled()
             }
 
-            let trade_price = match incoming_side{
-                    Side::Buy => ask_price,
-                    Side::Sell => bid_price
+            let trade_price = match incoming_side {
+                Side::Buy => ask_price,
+                Side::Sell => bid_price,
             };
 
             trades.push(Trade::new(
                 trade_price,
                 trade_quantity,
-                TradeInfo { 
-                        order_id: bid_id, 
-                        price: bid_price, 
-                        quantity: trade_quantity 
-                    },
-                TradeInfo { 
-                        order_id: ask_id, 
-                        price: ask_price, 
-                        quantity: trade_quantity 
-                    },
+                TradeInfo {
+                    order_id: bid_id,
+                    price: bid_price,
+                    quantity: trade_quantity,
+                },
+                TradeInfo {
+                    order_id: ask_id,
+                    price: ask_price,
+                    quantity: trade_quantity,
+                },
                 bid_actor_id,
                 ask_actor_id,
             ));
 
             self.on_order_matched(bid_price, trade_quantity, bid_filled);
             self.on_order_matched(ask_price, trade_quantity, ask_filled);
-            info!("Matched Bid Order #{} and Ask Order #{} @ price {} qty {}", bid_id, ask_id, trade_price, trade_quantity);
-            
+            info!(
+                "Matched Bid Order #{} and Ask Order #{} @ price {} qty {}",
+                bid_id, ask_id, trade_price, trade_quantity
+            );
 
             // --- REMOVE FILLED ---
             if bid_filled {
@@ -950,7 +982,7 @@ impl Orderbook {
         }
         MatchResult {
             trades,
-            filled_orders
+            filled_orders,
         }
     }
 
@@ -964,21 +996,18 @@ impl Orderbook {
     //         if let Some(expiry) = order.expiration {
     //             if expiry <= now {
     //                 expired_ids.push(*order_id);
-                    
+
     //             }
     //         }
     //     }
-        
 
     //     //remove expired orders
     //     for id in expired_ids {
     //         self.cancel_order(id);
-    //         warn!("Pruning order with id {}", id); 
+    //         warn!("Pruning order with id {}", id);
     //     }
 
-    
     // }
-
 }
 /// Tests:
 //Each test implicitly assumes a working match_orders() functionality
@@ -987,7 +1016,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_orderbook_new(){
+    fn test_orderbook_new() {
         let orderbook = Orderbook::new();
         assert_eq!(orderbook.size(), 0)
     }
@@ -995,10 +1024,31 @@ mod test {
     #[test]
     fn test_orderbook_add_order() -> Result<(), Box<dyn std::error::Error>> {
         let mut orderbook = Orderbook::new();
-        orderbook.add_order(Order::new(0, OrderType::GoodTillCancel, 1, Side::Buy, 100, 10)?);
-        orderbook.add_order(Order::new(0, OrderType::GoodTillCancel, 2, Side::Buy, 100, 10)?);
-        orderbook.add_order(Order::new(0, OrderType::GoodTillCancel, 3, Side::Buy, 100, 10)?);
-        
+        orderbook.add_order(Order::new(
+            0,
+            OrderType::GoodTillCancel,
+            1,
+            Side::Buy,
+            100,
+            10,
+        )?);
+        orderbook.add_order(Order::new(
+            0,
+            OrderType::GoodTillCancel,
+            2,
+            Side::Buy,
+            100,
+            10,
+        )?);
+        orderbook.add_order(Order::new(
+            0,
+            OrderType::GoodTillCancel,
+            3,
+            Side::Buy,
+            100,
+            10,
+        )?);
+
         assert_eq!(orderbook.size(), 3);
         Ok(())
     }
@@ -1007,9 +1057,30 @@ mod test {
     fn test_orderbook_cancel_order() -> Result<(), Box<dyn std::error::Error>> {
         let mut orderbook = Orderbook::new();
 
-        orderbook.add_order(Order::new(0, OrderType::GoodTillCancel, 1, Side::Buy, 100, 10)?);
-        orderbook.add_order(Order::new(0, OrderType::GoodTillCancel, 2, Side::Buy, 100, 10)?);
-        orderbook.add_order(Order::new(0, OrderType::GoodTillCancel, 3, Side::Buy, 100, 10)?);
+        orderbook.add_order(Order::new(
+            0,
+            OrderType::GoodTillCancel,
+            1,
+            Side::Buy,
+            100,
+            10,
+        )?);
+        orderbook.add_order(Order::new(
+            0,
+            OrderType::GoodTillCancel,
+            2,
+            Side::Buy,
+            100,
+            10,
+        )?);
+        orderbook.add_order(Order::new(
+            0,
+            OrderType::GoodTillCancel,
+            3,
+            Side::Buy,
+            100,
+            10,
+        )?);
         orderbook.cancel_order(1);
         orderbook.cancel_order(2);
         orderbook.cancel_order(3);
@@ -1021,9 +1092,22 @@ mod test {
     #[test]
     fn test_order_modify_order() -> Result<(), Box<dyn std::error::Error>> {
         let mut orderbook = Orderbook::new();
-        orderbook.add_order(Order::new(0, OrderType::GoodTillCancel, 1, Side::Buy, 100, 10)?);
-        orderbook.add_order(Order::new(0, OrderType::GoodTillCancel, 2, Side::Buy, 100, 10)?);
-    
+        orderbook.add_order(Order::new(
+            0,
+            OrderType::GoodTillCancel,
+            1,
+            Side::Buy,
+            100,
+            10,
+        )?);
+        orderbook.add_order(Order::new(
+            0,
+            OrderType::GoodTillCancel,
+            2,
+            Side::Buy,
+            100,
+            10,
+        )?);
 
         //create modification
         let order_mod = OrderModify::new(0, 2, Side::Sell, 100, 10);
@@ -1032,8 +1116,6 @@ mod test {
         orderbook.modify_order(order_mod);
         assert_eq!(orderbook.size(), 0);
         Ok(())
-        
-
     }
 
     #[test]
@@ -1041,13 +1123,40 @@ mod test {
         let mut orderbook = Orderbook::new();
 
         // match should completely fill
-        orderbook.add_order(Order::new(0, OrderType::GoodTillCancel, 2, Side::Sell, 100, 10)?);
-        orderbook.add_order(Order::new(0, OrderType::FillAndKill, 1, Side::Buy, 100, 10)?);
-        
-        
+        orderbook.add_order(Order::new(
+            0,
+            OrderType::GoodTillCancel,
+            2,
+            Side::Sell,
+            100,
+            10,
+        )?);
+        orderbook.add_order(Order::new(
+            0,
+            OrderType::FillAndKill,
+            1,
+            Side::Buy,
+            100,
+            10,
+        )?);
+
         //Unmatched F&K (should cancel)
-        orderbook.add_order(Order::new(0, OrderType::GoodTillCancel, 3, Side:: Buy, 250, 5)?);
-        orderbook.add_order(Order::new(0, OrderType::FillAndKill, 4, Side::Buy, 100, 10)?);
+        orderbook.add_order(Order::new(
+            0,
+            OrderType::GoodTillCancel,
+            3,
+            Side::Buy,
+            250,
+            5,
+        )?);
+        orderbook.add_order(Order::new(
+            0,
+            OrderType::FillAndKill,
+            4,
+            Side::Buy,
+            100,
+            10,
+        )?);
 
         assert_eq!(orderbook.size(), 1);
         Ok(())
@@ -1058,14 +1167,28 @@ mod test {
         let mut orderbook = Orderbook::new();
 
         // Add a sell order with quantity less than the FOK buy order
-        orderbook.add_order(Order::new(0, OrderType::GoodTillCancel, 1, Side::Sell, 100, 5)?);
+        orderbook.add_order(Order::new(
+            0,
+            OrderType::GoodTillCancel,
+            1,
+            Side::Sell,
+            100,
+            5,
+        )?);
 
         // Try to add a FOK buy order that requires more quantity than available (should not be added)
         orderbook.add_order(Order::new(0, OrderType::FillOrKill, 2, Side::Buy, 100, 10)?);
         assert_eq!(orderbook.size(), 1);
 
         // Now add enough sell quantity to fill the FOK order
-        orderbook.add_order(Order::new(0, OrderType::GoodTillCancel, 3, Side::Sell, 100, 10)?);
+        orderbook.add_order(Order::new(
+            0,
+            OrderType::GoodTillCancel,
+            3,
+            Side::Sell,
+            100,
+            10,
+        )?);
 
         // Add a FOK buy order that can be fully filled (should match and remove both)
         orderbook.add_order(Order::new(0, OrderType::FillOrKill, 4, Side::Buy, 100, 10)?);
@@ -1078,16 +1201,43 @@ mod test {
     fn test_orderbook_wont_match() -> Result<(), Box<dyn std::error::Error>> {
         let mut ob1 = Orderbook::new();
         let mut ob2 = Orderbook::new();
-        
 
         //Same side
-        ob1.add_order(Order::new(0,OrderType::GoodTillCancel, 1, Side::Buy, 1, 1)?);
-        ob1.add_order(Order::new(0, OrderType::GoodTillCancel, 2, Side::Buy, 1, 1)?);
+        ob1.add_order(Order::new(
+            0,
+            OrderType::GoodTillCancel,
+            1,
+            Side::Buy,
+            1,
+            1,
+        )?);
+        ob1.add_order(Order::new(
+            0,
+            OrderType::GoodTillCancel,
+            2,
+            Side::Buy,
+            1,
+            1,
+        )?);
 
         //Ask higher than bid
-        ob2.add_order(Order::new(0, OrderType::GoodTillCancel, 1, Side::Buy, 1, 1)?);
-        ob2.add_order(Order::new(0, OrderType::GoodTillCancel, 2, Side::Sell, 2, 1)?);
-        
+        ob2.add_order(Order::new(
+            0,
+            OrderType::GoodTillCancel,
+            1,
+            Side::Buy,
+            1,
+            1,
+        )?);
+        ob2.add_order(Order::new(
+            0,
+            OrderType::GoodTillCancel,
+            2,
+            Side::Sell,
+            2,
+            1,
+        )?);
+
         assert_eq!(ob1.size(), ob2.size());
         Ok(())
     }
@@ -1097,13 +1247,41 @@ mod test {
         let mut ob = Orderbook::new();
         println!("Created orderbook!");
 
-        ob.add_order(Order::new(0, OrderType::GoodTillCancel, 1, Side::Buy, 100, 10)?);
-        ob.add_order(Order::new(0, OrderType::GoodTillCancel, 2, Side::Buy, 150, 10)?);
+        ob.add_order(Order::new(
+            0,
+            OrderType::GoodTillCancel,
+            1,
+            Side::Buy,
+            100,
+            10,
+        )?);
+        ob.add_order(Order::new(
+            0,
+            OrderType::GoodTillCancel,
+            2,
+            Side::Buy,
+            150,
+            10,
+        )?);
         // No orders can match
-        ob.add_order(Order::new(0, OrderType::GoodTillCancel, 3, Side::Sell, 200, 10)?);
-        ob.add_order(Order::new(0, OrderType::GoodTillCancel, 4, Side::Sell, 300, 10)?);
+        ob.add_order(Order::new(
+            0,
+            OrderType::GoodTillCancel,
+            3,
+            Side::Sell,
+            200,
+            10,
+        )?);
+        ob.add_order(Order::new(
+            0,
+            OrderType::GoodTillCancel,
+            4,
+            Side::Sell,
+            300,
+            10,
+        )?);
         println!("Added incompatible orders!");
-        // Will match worst sell order (300); asks should be left with 1 
+        // Will match worst sell order (300); asks should be left with 1
         ob.add_order(Order::new_market(0, 5, Side::Buy, 10)?);
         println!("Added market order!");
         let level_infos = ob.get_order_infos();
@@ -1111,10 +1289,8 @@ mod test {
 
         assert_eq!(asks.len(), 1);
         Ok(())
-
     }
 
-    
     // #[test]
     // fn test_good_for_day_pruning() {
     //     let mut ob = Orderbook::new();
