@@ -760,7 +760,7 @@ impl Orderbook {
                 .is_some_and(|(ask, _)| price >= *ask),
             Side::Sell => self
                 .bids
-                .first_key_value()
+                .last_key_value()
                 .is_some_and(|(bid, _)| price <= *bid),
         }
     }
@@ -1240,6 +1240,32 @@ mod test {
         )?);
 
         assert_eq!(ob1.size(), ob2.size());
+        Ok(())
+    }
+
+    #[test]
+    fn test_orderbook_can_match() -> Result<(), Box<dyn std::error::Error>> {
+        //bid -> highest price buyer willing to pay
+        let mut bids: BTreeMap<Price, OrderIds> = BTreeMap::new();
+        //ask -> lowest price seller willing to accept
+        let mut asks: BTreeMap<Price, OrderIds> = BTreeMap::new();
+
+        bids.insert(90, vec![0, 1, 2]);
+        bids.insert(100, vec![0, 1, 2]);
+
+        asks.insert(100, vec![0, 1, 2]);
+        asks.insert(95, vec![0, 1, 2]);
+
+        let price: Price = 95;
+        //-----Fix: Use the last bid (highest price) -------
+        //sold if highest price willing to buy >= lowest price willing to sell
+        let mut sold = bids.last_key_value().is_some_and(|(bid, _)| price <= *bid);
+        assert_eq!(sold, true);
+
+        //-----Replicate Original Bug -------
+        // sold = bids.first_key_value().is_some_and(|(bid, _)| price <= *bid);
+        // assert_eq!(sold, true);
+
         Ok(())
     }
 
