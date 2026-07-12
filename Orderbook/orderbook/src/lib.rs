@@ -760,7 +760,7 @@ impl Orderbook {
                 .is_some_and(|(ask, _)| price >= *ask),
             Side::Sell => self
                 .bids
-                .first_key_value()
+                .last_key_value()
                 .is_some_and(|(bid, _)| price <= *bid),
         }
     }
@@ -1240,6 +1240,49 @@ mod test {
         )?);
 
         assert_eq!(ob1.size(), ob2.size());
+        Ok(())
+    }
+
+    #[test]
+    fn test_orderbook_can_match() -> Result<(), Box<dyn std::error::Error>> {
+        let mut obj = Orderbook::new();
+
+        //bid = buy & ask = sell
+
+        //ask order with price 100
+        obj.add_order(Order::new(
+            0,
+            OrderType::GoodTillCancel,
+            2,
+            Side::Sell,
+            100,
+            1,
+        )?);
+
+        obj.add_order(Order::new(
+            0,
+            OrderType::GoodTillCancel,
+            2,
+            Side::Buy,
+            80,
+            1,
+        )?);
+
+        //this bid order with price 105 should match the ask
+        obj.add_order(Order::new(
+            0,
+            OrderType::GoodTillCancel,
+            2,
+            Side::Buy,
+            105,
+            1,
+        )?);
+
+        if let Some(lowest_bid) = obj.bids.first_key_value() {
+            let (val, _) = lowest_bid;
+
+            assert_eq!(*val, 80);
+        };
         Ok(())
     }
 
