@@ -612,7 +612,6 @@ impl Orderbook {
         // --- INSERT ---
         self.orders.insert(order_id, order);
 
-        
         let index = if side == Side::Buy {
             let level = self.bids.entry(price).or_default();
             level.push(order_id, quantity)
